@@ -557,7 +557,7 @@ body.light .lb-qtab.active{color:#fff;}
   </div>
 
   <div class="lb-guide-scroll" id="guideScroll" hidden>
-    <div class="lb-guide-intro">Eight hunt scenarios: five map one-to-one onto the categories in this reference, three chain across categories to trace a fuller intrusion pattern. Each pairs a hypothesis with the data sources to pull and an ordered sequence of binaries to check. Click any step to jump straight to that binary's detection queries.</div>
+    <div class="lb-guide-intro">Ten hunt scenarios: five cover the core categories in this reference, two extend those categories as they grew (a second proxy-execution wave, plus UAC bypass split out from AppLocker/WDAC bypass since it's a different control entirely), and three chain across categories to trace a fuller intrusion pattern. Each pairs a hypothesis with the data sources to pull and an ordered sequence of binaries to check. Click any step to jump straight to that binary's detection queries.</div>
     <div class="lb-guide-grid" id="guideGrid"></div>
   </div>
 </div>
@@ -642,7 +642,10 @@ var GUIDES=[
     dataSources:'Process creation with full command-line auditing (Sysmon Event ID 1 / Windows Event 4688), plus DNS and proxy logs for outbound HTTP(S) from processes that have no business making web requests.',
     steps:[
       {id:'certutil', why:'-urlcache -f pulls a remote file straight to disk under a certificate-management binary. Any certutil.exe process with an outbound HTTP connection is worth a second look.'},
-      {id:'bitsadmin', why:'BITS transfer jobs run under a Windows service, throttle to blend with normal traffic, and survive a reboot — the requesting process may be long gone by the time the file lands.'}
+      {id:'bitsadmin', why:'BITS transfer jobs run under a Windows service, throttle to blend with normal traffic, and survive a reboot — the requesting process may be long gone by the time the file lands.'},
+      {id:'makecab', why:'Can fetch a file from a remote SMB/WebDAV share while compressing it locally, and can write the result into an NTFS Alternate Data Stream to keep it off a normal directory listing.'},
+      {id:'expand', why:'Copies a file from a remote SMB/WebDAV path to local disk, same as makecab minus the compression — watch its source-path argument for anything outside a driver/update location.'},
+      {id:'esentutl', why:'Its /y /d copy mode moves files between local, UNC, and ADS paths, and can pull a locked file via Volume Shadow Copy — a database-repair tool with no business touching remote paths.'}
     ]},
   { id:'proxy-execution', title:'System Binary Proxy Execution — Scripting, Rendering & Installer Hosts', color:'#00d4ff',
     tagline:'A trusted parent process is the whole point of the technique.',
@@ -664,6 +667,21 @@ var GUIDES=[
       {id:'presentationhost', why:'Hosts XAML Browser Applications (XBAPs) — a now-deprecated WPF delivery mechanism that can fetch and execute a remote XBAP payload.'},
       {id:'wscript', why:'The GUI-mode twin of cscript; a wscript.exe process with a hidden window and a script pulled from a non-standard path is the same pattern, just without a console.'}
     ]},
+  { id:'proxy-execution-2', title:'System Binary Proxy Execution — Injection, Diagnostics & Certificate Utilities', color:'#22d3ee',
+    tagline:'The second wave of trusted parents, once you go looking.',
+    hypothesis:'The same proxy-execution logic extends past the obvious scripting hosts into diagnostics tooling, backup/VSS utilities, debuggers, and certificate management — narrower, less-monitored binaries that do the exact same job of running attacker code under a signed parent.',
+    tactic:'Defense Evasion — System Binary Proxy Execution / Trusted Developer Utilities (T1218, T1218.013, T1127)',
+    dataSources:'Process creation + command-line logging, module/DLL load events (Sysmon Event ID 7), and Volume Shadow Copy service events where diskshadow or esentutl are involved.',
+    steps:[
+      {id:'msdt', why:'A crafted diagnostic-pack answer file drives msdt.exe into launching an attacker-supplied MSI or command — the mechanism behind the Follina (CVE-2022-30190) remote-template path.'},
+      {id:'mavinject', why:'/INJECTRUNNING lets a standard user inject an arbitrary DLL into any accessible running process by PID, including a DLL staged inside an NTFS Alternate Data Stream.'},
+      {id:'vsjitdebugger', why:'Directly launches and attaches to any executable passed on the command line — a debugger invocation with no crashing process behind it is the anomaly.'},
+      {id:'register-cimprovider', why:'-path loads and executes any target DLL regardless of whether it is a genuine WMI provider, functionally a DLL loader with a narrow, legitimate-sounding purpose.'},
+      {id:'rasautou', why:'A legacy dial-up automation utility whose -d/-p switches load a target DLL and invoke a named export — a rasautou.exe process on a modern host with no dial-up configuration is itself notable.'},
+      {id:'certoc', why:'-LoadDLL loads and executes an arbitrary DLL under a certificate-management binary, and -GetCACAPS can fetch a remote text-formatted file such as a script.'},
+      {id:'appvlp', why:'A Microsoft Office-trusted App-V launcher that will run a local or WebDAV-hosted batch file, exempt from certain Office Attack Surface Reduction rules — watch for it spawning outside an actual App-V deployment.'},
+      {id:'diskshadow', why:'Its exec scripted command spawns an arbitrary child process while nominally just managing Volume Shadow Copy snapshots — a script-mode invocation on a non-backup host is worth explaining.'}
+    ]},
   { id:'whitelisting-bypass', title:'AppLocker/WDAC Bypass via COM, Scriptlets & Profile Installers', color:'#ec4899',
     tagline:'The block never fires because nothing looks like an EXE.',
     hypothesis:'When a whitelisting control blocks arbitrary executables, adversaries reach for signed binaries whose entire job is to load and run code on behalf of something else — a COM/DLL registrar, a .NET install utility, an XSLT processor — so the control simply never sees a disallowed binary launch.',
@@ -677,6 +695,15 @@ var GUIDES=[
       {id:'installutil', why:'/U runs the Uninstall method of an assembly’s Installer class, the same tradecraft as regasm via a different .NET utility.'},
       {id:'msxsl', why:'Executes embedded JScript/VBScript inside an XSL stylesheet during a routine-looking XML transform.'}
     ]},
+  { id:'uac-bypass', title:'UAC Bypass via Hijacked Registry Handlers', color:'#f472b6',
+    tagline:'A different control than whitelisting, a different kind of hijack.',
+    hypothesis:'A small set of Windows binaries are auto-elevate: they run at high integrity without a UAC prompt, and resolve part of their own startup behavior from a per-user (HKCU) registry key. Hijack that key first and the next launch runs attacker code at high integrity, silently.',
+    tactic:'Privilege Escalation — Abuse Elevation Control Mechanism: Bypass User Account Control (T1548.002)',
+    dataSources:'Registry modification events for HKCU\\Software\\Classes\\mscfile\\shell\\open\\command and HKCU\\Software\\Classes\\ms-settings\\Shell\\open\\command, paired with process creation showing the auto-elevate binary spawning an unexpected child at high integrity.',
+    steps:[
+      {id:'eventvwr', why:'Resolves its .msc handler via HKCU\\Software\\Classes\\mscfile\\shell\\open\\command at startup — a hijacked value makes eventvwr.exe launch the attacker’s binary as a high-integrity process with no prompt.'},
+      {id:'computerdefaults', why:'Same hijack, different key: HKCU\\Software\\Classes\\ms-settings\\Shell\\open\\command. Both binaries are otherwise unremarkable GUI settings launchers — the registry write is the actual signal, not the process name.'}
+    ]},
   { id:'compile-abuse', title:'In-Memory / On-Disk Compilation Abuse', color:'#a78bfa',
     tagline:'The payload never exists as a file until a trusted tool builds it for you.',
     hypothesis:'Rather than drop a compiled payload that AV can hash and block, adversaries drop source (or embed it in a project file) and let a trusted developer tool compile and run it on the box — the resulting binary never touched disk as itself.',
@@ -686,14 +713,16 @@ var GUIDES=[
       {id:'msbuild', why:'An inline-task MSBuild project can embed C# source directly in the XML, which msbuild.exe compiles and executes with no separate compiler invocation — check any .xml/.csproj argument against a Temp or user-writable path.'},
       {id:'csc', why:'Direct command-line C# compilation producing a payload EXE that a follow-on process then launches — look for csc.exe immediately followed by execution of the file it just wrote.'}
     ]},
-  { id:'persistence-plant', title:'Persistence via DNS Server Plugins & Scheduled Tasks', color:'#6366f1',
+  { id:'persistence-plant', title:'Persistence via DNS Plugins, Scheduled Tasks & Netsh Helpers', color:'#6366f1',
     tagline:'A way back in that skips the Run keys everyone already watches.',
-    hypothesis:'On a host running (or with access to) the Windows DNS Server role, or simply via native task scheduling, an adversary plants persistence that survives reboot without touching Run keys, services, or WMI subscriptions — the mechanisms most persistence hunts already cover.',
-    tactic:'Persistence — Server Software Component / Scheduled Task (T1543.003, T1053.005)',
-    dataSources:'Process creation + command-line logging for dnscmd.exe/schtasks.exe, the Task Scheduler operational log (Event ID 106/140/141), and the DNS Server ServerLevelPluginDll registry value.',
+    hypothesis:'On a host running (or with access to) the Windows DNS Server role, or simply via native task scheduling and network configuration tooling, an adversary plants persistence that survives reboot without touching Run keys, services, or WMI subscriptions — the mechanisms most persistence hunts already cover.',
+    tactic:'Persistence — Server Software Component / Scheduled Task / Netsh Helper DLL (T1543.003, T1053.005, T1546.007)',
+    dataSources:'Process creation + command-line logging for dnscmd.exe/schtasks.exe/netsh.exe, the Task Scheduler operational log (Event ID 106/140/141), the DNS Server ServerLevelPluginDll registry value, and the netsh helper DLL registry list.',
     steps:[
       {id:'dnscmd', why:'/config /serverlevelplugindll registers an arbitrary DLL to load inside dns.exe on every service restart — a rare, high-value technique limited to DNS server hosts, so any hit deserves immediate escalation.'},
-      {id:'schtasks', why:'/create with a plausible-sounding task name schedules recurring execution of a payload — diff newly created tasks against your known-good baseline rather than eyeballing names.'}
+      {id:'schtasks', why:'/create with a plausible-sounding task name schedules recurring execution of a payload — diff newly created tasks against your known-good baseline rather than eyeballing names.'},
+      {id:'netsh', why:'add helper registers an attacker DLL to load every time netsh.exe subsequently runs — both a persistence mechanism and a proxy execution vector, and rarely audited since netsh itself looks like routine network administration.'},
+      {id:'sc', why:'A service binPath pointing into an NTFS Alternate Data Stream runs the hidden payload on every service start or host boot, while sc.exe query and normal service metadata show only the innocuous host file.'}
     ]},
   { id:'full-chain', title:'End-to-End Intrusion Chain: Trusted Binaries at Every Stage', color:'#14b8a6',
     tagline:'One binary per stage, all of them already on the box.',

