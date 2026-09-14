@@ -154,6 +154,7 @@ body.light .toggle-thumb{transform:translateX(22px);}
 .lb-intro b{color:var(--text-dim);}
 
 /* ── Filter bar ── */
+.lb-filterbar[hidden]{display:none!important;}
 .lb-filterbar{display:flex;align-items:center;gap:18px;padding:10px 20px;border-bottom:1px solid var(--border-soft);
   background:var(--panel-alt);flex-wrap:wrap;flex-shrink:0;row-gap:10px;}
 .lb-filter-group{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
@@ -199,6 +200,50 @@ body.light .toggle-thumb{transform:translateX(22px);}
   letter-spacing:.04em;text-transform:uppercase;white-space:nowrap;border-radius:4px;padding:3px 8px;}
 .lb-src-pill{font-family:var(--mono);font-size:9.5px;font-weight:600;color:var(--text-dim);white-space:nowrap;
   background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:3px 8px;}
+
+/* ── View toggle ── */
+.lb-view-toggle{display:flex;flex-shrink:0;background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:2px;gap:2px;}
+.lb-view-btn{font-family:var(--font-cond);font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+  padding:7px 12px;border:none;border-radius:5px;background:transparent;color:var(--muted);cursor:pointer;white-space:nowrap;transition:.14s;}
+.lb-view-btn:hover{color:var(--text);}
+.lb-view-btn.active{background:var(--accent);color:#04101c;}
+@media(max-width:900px){.lb-view-btn{font-size:10px;padding:6px 9px;}}
+
+/* ── Hunting guide (investigation-goal view) ── */
+.lb-guide-scroll{flex:1;overflow:auto;min-height:0;padding:16px 20px 32px;}
+.lb-guide-intro{font-size:13px;color:var(--muted);max-width:80ch;margin-bottom:16px;line-height:1.55;}
+.lb-guide-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;}
+@media(max-width:960px){.lb-guide-grid{grid-template-columns:1fr;}}
+.lb-guide-card{background:linear-gradient(155deg, color-mix(in srgb, var(--gd-color,var(--accent)) 16%, var(--panel)) 0%, var(--panel) 60%);
+  border:1px solid var(--border-soft);border-top:4px solid var(--gd-color,var(--accent));border-radius:9px;
+  transition:border-color .18s,box-shadow .18s;}
+.lb-guide-card.open{border-color:var(--border-strong);box-shadow:0 8px 22px -8px color-mix(in srgb, var(--gd-color,var(--accent)) 40%, transparent);}
+.lb-guide-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 18px;cursor:pointer;
+  background:transparent;border:none;width:100%;text-align:left;font-family:var(--ui);}
+.lb-guide-title{font-size:15px;font-weight:700;color:var(--text);margin-bottom:4px;}
+.lb-guide-tagline{font-size:12.5px;color:var(--muted);line-height:1.5;}
+.lb-guide-meta{display:flex;align-items:center;gap:6px;flex-shrink:0;}
+.lb-guide-count{font-family:var(--mono);font-size:10.5px;color:var(--dim);white-space:nowrap;background:var(--surface);
+  border:1px solid var(--border);border-radius:12px;padding:3px 9px;}
+.lb-guide-caret{color:var(--dim);font-size:11px;transition:transform .18s;flex-shrink:0;margin-top:2px;}
+.lb-guide-card.open .lb-guide-caret{transform:rotate(180deg);}
+.lb-guide-body{display:none;flex-direction:column;padding:0 18px 16px;gap:14px;}
+.lb-guide-card.open .lb-guide-body{display:flex;}
+.lb-guide-block{border-radius:5px;padding:10px 13px;font-size:12.5px;line-height:1.6;background:var(--panel-alt);
+  border-left:3px solid var(--gd-color,var(--accent2));color:var(--text-dim);}
+.lb-guide-block b{color:var(--text);}
+.lb-guide-steps{display:flex;flex-direction:column;padding:0;gap:0;}
+.lb-guide-step{display:flex;align-items:flex-start;gap:12px;padding:10px 0;border-top:1px solid var(--border-soft);cursor:pointer;
+  background:transparent;border-left:none;border-right:none;border-bottom:none;width:100%;text-align:left;font-family:var(--ui);}
+.lb-guide-step:hover .lb-guide-step-name{color:var(--accent);}
+.lb-guide-step-num{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--dim);flex-shrink:0;
+  width:20px;height:20px;border-radius:50%;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;margin-top:1px;}
+.lb-guide-step-body{min-width:0;flex:1;}
+.lb-guide-step-name{font-family:var(--mono);font-size:12.5px;font-weight:700;color:var(--text);transition:color .12s;}
+.lb-guide-step-why{font-size:12px;color:var(--muted);line-height:1.5;margin-top:3px;}
+.lb-guide-step-go{flex-shrink:0;font-family:var(--font-cond);font-size:9.5px;font-weight:700;letter-spacing:.05em;
+  color:var(--dim);white-space:nowrap;margin-top:3px;}
+.lb-guide-step:hover .lb-guide-step-go{color:var(--accent);}
 
 /* ── Inspector (slide-in drawer) ── */
 .lb-inspector-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;opacity:0;pointer-events:none;transition:opacity .2s;}
@@ -480,6 +525,10 @@ body.light .lb-qtab.active{color:#fff;}
       <input id="searchInput" type="search" placeholder="search binary, path, technique... ( / )" autocomplete="off" spellcheck="false" oninput="onSearch()" />
       <span class="hint"><kbd>/</kbd></span>
     </div>
+    <div class="lb-view-toggle" role="tablist" aria-label="View">
+      <button class="lb-view-btn active" id="viewBtnBins" role="tab" aria-selected="true" onclick="setView('bins')">LOLBINS</button>
+      <button class="lb-view-btn" id="viewBtnGuide" role="tab" aria-selected="false" onclick="setView('guide')">HUNTING GUIDE</button>
+    </div>
     <div class="lb-stat-strip" id="statStrip"></div>
   </div>
 
@@ -487,7 +536,7 @@ body.light .lb-qtab.active{color:#fff;}
     <b>LOLBAS abuse is a recurring technique in intrusions affecting Indian organizations</b>, as in enterprise environments globally: attackers reach for binaries already trusted on the endpoint (certutil, mshta, rundll32, and similar) to download, execute, or bypass controls without dropping new tooling. This reference covers legitimate use, real attacker syntax, detection logic, and defence guidance for each — no actor attribution, just the binaries and how to catch their abuse.
   </div>
 
-  <div class="lb-filterbar">
+  <div class="lb-filterbar" id="filterBar">
     <div class="lb-filter-group">
       <span class="lb-filter-group-label">Category</span>
       <div id="categoryChips"></div>
@@ -505,6 +554,11 @@ body.light .lb-qtab.active{color:#fff;}
 
   <div class="lb-card-scroll" id="cardScroll">
     <div class="lb-card-grid" id="cardGrid"></div>
+  </div>
+
+  <div class="lb-guide-scroll" id="guideScroll" hidden>
+    <div class="lb-guide-intro">Five hunt scenarios, one per LOLBin category in this reference. Each pairs a hypothesis with the data sources to pull and an ordered sequence of binaries to check, worst offender first. Click any step to jump straight to that binary's detection queries.</div>
+    <div class="lb-guide-grid" id="guideGrid"></div>
   </div>
 </div>
 
@@ -577,6 +631,71 @@ var selectedId=null;
 var sortField='name';
 var sortDir=1;
 var activeQFormat='kql';
+var activeView='bins';
+var openGuideId=null;
+
+var GUIDES=[
+  { id:'ingress-transfer', title:'Ingress Tool Transfer via Trusted Retrieval Utilities', color:'#f59e0b',
+    tagline:'When the download itself is the tell, not the payload.',
+    hypothesis:'If an adversary needs to stage a second-stage payload without a browser download or a custom fetcher, they reach for a built-in utility’s URL-retrieval feature instead. The traffic still leaves the host, but the parent process is one already on every allow-list.',
+    tactic:'Command and Control — Ingress Tool Transfer (T1105)',
+    dataSources:'Process creation with full command-line auditing (Sysmon Event ID 1 / Windows Event 4688), plus DNS and proxy logs for outbound HTTP(S) from processes that have no business making web requests.',
+    steps:[
+      {id:'certutil', why:'-urlcache -f pulls a remote file straight to disk under a certificate-management binary. Any certutil.exe process with an outbound HTTP connection is worth a second look.'},
+      {id:'bitsadmin', why:'BITS transfer jobs run under a Windows service, throttle to blend with normal traffic, and survive a reboot — the requesting process may be long gone by the time the file lands.'}
+    ]},
+  { id:'proxy-execution', title:'System Binary Proxy Execution — Scripting, Rendering & Installer Hosts', color:'#00d4ff',
+    tagline:'A trusted parent process is the whole point of the technique.',
+    hypothesis:'Adversaries proxy a malicious script or DLL through a signed Microsoft binary specifically so the resulting process tree shows a trusted parent, defeating detections that key off the executable itself rather than what it was told to run.',
+    tactic:'Defense Evasion — System Binary Proxy Execution (T1218)',
+    dataSources:'Process creation + command-line logging, module/DLL load events (Sysmon Event ID 7), and full parent-child process lineage — the parent is usually the more interesting anomaly than the child.',
+    steps:[
+      {id:'mshta', why:'Runs .hta files with embedded VBScript/JScript entirely outside the browser sandbox. A command line containing http:// or javascript: is close to always suspicious.'},
+      {id:'rundll32', why:'Invokes an arbitrary exported function from any DLL. Look for rundll32 loading a DLL from a user-writable path (Temp, Downloads, AppData) rather than System32.'},
+      {id:'wmic', why:'/format: and process call create can both proxy execution; wmic is also increasingly flagged by EDR precisely because it is so often abused, so unusual command-line length or obfuscation stands out.'},
+      {id:'cscript', why:'Hosts VBScript/JScript from the console. A hidden window style flag alongside a script path pulled from Temp or a recently-written file is the pattern to chase.'},
+      {id:'msiexec', why:'/i or /y against a remote .msi lets an adversary run arbitrary install-time custom actions. Check the MSI source path against known software deployment tooling.'},
+      {id:'control', why:'Launches arbitrary .cpl files, which are just renamed DLLs exporting CPlApplet. A control.exe command line pointing outside System32 is the tell.'},
+      {id:'hh', why:'Opens .chm Compiled HTML Help files, which can embed a shortcut that runs an arbitrary command via the HTML Help ActiveX control.'},
+      {id:'forfiles', why:'/c runs an arbitrary command against matched files, and its own process name rarely shows up in normal admin activity — treat any forfiles.exe execution as worth explaining.'},
+      {id:'pcalua', why:'The Program Compatibility Assistant’s -a flag launches a target program on the user’s behalf, one layer removed from the process that requested it.'},
+      {id:'verclsid', why:'Instantiates a COM object by CLSID before Explorer displays a shell verb — a rarely-seen process name with a /S /C GUID argument is itself an anomaly worth triaging.'},
+      {id:'ie4uinit', why:'Processes an .inf file via -BaseSettings, a mechanism that can be repointed to run attacker-supplied INF content.'},
+      {id:'presentationhost', why:'Hosts XAML Browser Applications (XBAPs) — a now-deprecated WPF delivery mechanism that can fetch and execute a remote XBAP payload.'},
+      {id:'wscript', why:'The GUI-mode twin of cscript; a wscript.exe process with a hidden window and a script pulled from a non-standard path is the same pattern, just without a console.'}
+    ]},
+  { id:'whitelisting-bypass', title:'AppLocker/WDAC Bypass via COM, Scriptlets & Profile Installers', color:'#ec4899',
+    tagline:'The block never fires because nothing looks like an EXE.',
+    hypothesis:'When a whitelisting control blocks arbitrary executables, adversaries reach for signed binaries whose entire job is to load and run code on behalf of something else — a COM/DLL registrar, a .NET install utility, an XSLT processor — so the control simply never sees a disallowed binary launch.',
+    tactic:'Defense Evasion — Signed Binary Proxy Execution / XSL Script Processing (T1218, T1220)',
+    dataSources:'Process creation + command-line logging, .NET assembly load events, and file-write events for INF/XSL/SCT files immediately preceding the suspicious process launch.',
+    steps:[
+      {id:'cmstp', why:'A crafted Connection Manager profile INF can trigger an UnRegisterOCXSection that runs an embedded .sct scriptlet — explicitly on Microsoft’s own list of binaries to consider blocking outright.'},
+      {id:'regsvr32', why:'The classic "Squiblydoo": /i:http://.../file.sct scrobj.dll registers a remote scriptlet as a COM object, executing it in the process. No file ever touches disk.'},
+      {id:'odbcconf', why:'The REGSVR action loads an arbitrary DLL’s DllRegisterServer export, functionally identical to regsvr32 but far less monitored.'},
+      {id:'regasm', why:'/U (unregister) invokes a .NET assembly’s user-defined Unregister method — attacker code runs from inside a signed .NET Framework utility.'},
+      {id:'installutil', why:'/U runs the Uninstall method of an assembly’s Installer class, the same tradecraft as regasm via a different .NET utility.'},
+      {id:'msxsl', why:'Executes embedded JScript/VBScript inside an XSL stylesheet during a routine-looking XML transform.'}
+    ]},
+  { id:'compile-abuse', title:'In-Memory / On-Disk Compilation Abuse', color:'#a78bfa',
+    tagline:'The payload never exists as a file until a trusted tool builds it for you.',
+    hypothesis:'Rather than drop a compiled payload that AV can hash and block, adversaries drop source (or embed it in a project file) and let a trusted developer tool compile and run it on the box — the resulting binary never touched disk as itself.',
+    tactic:'Defense Evasion — Trusted Developer Utilities Proxy Execution (T1127), Masquerading (T1036)',
+    dataSources:'Process creation + command-line logging, .csproj/.xml project file writes, and file-creation events for newly compiled EXE/DLL output immediately followed by its own execution.',
+    steps:[
+      {id:'msbuild', why:'An inline-task MSBuild project can embed C# source directly in the XML, which msbuild.exe compiles and executes with no separate compiler invocation — check any .xml/.csproj argument against a Temp or user-writable path.'},
+      {id:'csc', why:'Direct command-line C# compilation producing a payload EXE that a follow-on process then launches — look for csc.exe immediately followed by execution of the file it just wrote.'}
+    ]},
+  { id:'persistence-plant', title:'Persistence via DNS Server Plugins & Scheduled Tasks', color:'#6366f1',
+    tagline:'A way back in that skips the Run keys everyone already watches.',
+    hypothesis:'On a host running (or with access to) the Windows DNS Server role, or simply via native task scheduling, an adversary plants persistence that survives reboot without touching Run keys, services, or WMI subscriptions — the mechanisms most persistence hunts already cover.',
+    tactic:'Persistence — Server Software Component / Scheduled Task (T1543.003, T1053.005)',
+    dataSources:'Process creation + command-line logging for dnscmd.exe/schtasks.exe, the Task Scheduler operational log (Event ID 106/140/141), and the DNS Server ServerLevelPluginDll registry value.',
+    steps:[
+      {id:'dnscmd', why:'/config /serverlevelplugindll registers an arbitrary DLL to load inside dns.exe on every service restart — a rare, high-value technique limited to DNS server hosts, so any hit deserves immediate escalation.'},
+      {id:'schtasks', why:'/create with a plausible-sounding task name schedules recurring execution of a payload — diff newly created tasks against your known-good baseline rather than eyeballing names.'}
+    ]}
+];
 
 function escapeHtml(s){
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -796,6 +915,52 @@ function showError(){
     +'<button class="lb-retry" onclick="bootstrap()">RETRY</button></div>';
 }
 
+/* ── Hunting guide (investigation-goal view) ── */
+function setView(v){
+  activeView=v;
+  var btnB=document.getElementById('viewBtnBins'), btnG=document.getElementById('viewBtnGuide');
+  btnB.classList.toggle('active', v==='bins');
+  btnB.setAttribute('aria-selected', v==='bins');
+  btnG.classList.toggle('active', v==='guide');
+  btnG.setAttribute('aria-selected', v==='guide');
+  document.getElementById('filterBar').hidden = v!=='bins';
+  document.getElementById('cardScroll').hidden = v!=='bins';
+  document.getElementById('guideScroll').hidden = v!=='guide';
+}
+function toggleGuide(id){
+  openGuideId = (openGuideId===id) ? null : id;
+  renderGuides();
+}
+function renderGuides(){
+  var grid=document.getElementById('guideGrid');
+  if(!grid) return;
+  grid.innerHTML=GUIDES.map(function(gd){
+    var open=openGuideId===gd.id;
+    var stepsHtml=gd.steps.map(function(s,i){
+      var bin=allBins.filter(function(x){return x.id===s.id;})[0];
+      var label=bin?bin.name:s.id;
+      return '<button class="lb-guide-step" onclick="event.stopPropagation();openInspector(\''+s.id+'\')">'
+        +'<span class="lb-guide-step-num">'+(i+1)+'</span>'
+        +'<span class="lb-guide-step-body"><span class="lb-guide-step-name">'+escapeHtml(label)+'</span>'
+        +'<div class="lb-guide-step-why">'+escapeHtml(s.why)+'</div></span>'
+        +'<span class="lb-guide-step-go">OPEN &rarr;</span>'
+        +'</button>';
+    }).join('');
+    return '<div class="lb-guide-card'+(open?' open':'')+'" style="--gd-color:'+gd.color+'">'
+      +'<button class="lb-guide-head" onclick="toggleGuide(\''+gd.id+'\')" aria-expanded="'+open+'">'
+      +'<span><div class="lb-guide-title">'+escapeHtml(gd.title)+'</div><div class="lb-guide-tagline">'+escapeHtml(gd.tagline)+'</div></span>'
+      +'<span class="lb-guide-meta"><span class="lb-guide-count">'+gd.steps.length+' BINARIES</span><span class="lb-guide-caret">&#9662;</span></span>'
+      +'</button>'
+      +(open?('<div class="lb-guide-body">'
+        +'<div class="lb-guide-block"><b>Hypothesis.</b> '+escapeHtml(gd.hypothesis)+'</div>'
+        +'<div class="lb-guide-block"><b>Tactic.</b> '+escapeHtml(gd.tactic)+'</div>'
+        +'<div class="lb-guide-block"><b>Data sources.</b> '+escapeHtml(gd.dataSources)+'</div>'
+        +'<div class="lb-guide-steps">'+stepsHtml+'</div>'
+        +'</div>'):'')
+      +'</div>';
+  }).join('');
+}
+
 document.addEventListener('keydown',function(e){
   var tag=(document.activeElement||{}).tagName;
   var typing=(tag==='INPUT'||tag==='TEXTAREA');
@@ -823,6 +988,7 @@ function bootstrap(){
       updateStatStrip();
       renderFilters();
       renderCards();
+      renderGuides();
       var hash=(location.hash||'').replace('#','');
       if(hash && allBins.some(function(b){return b.id===hash;})){
         openInspector(hash);
