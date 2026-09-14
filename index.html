@@ -557,7 +557,7 @@ body.light .lb-qtab.active{color:#fff;}
   </div>
 
   <div class="lb-guide-scroll" id="guideScroll" hidden>
-    <div class="lb-guide-intro">Five hunt scenarios, one per LOLBin category in this reference. Each pairs a hypothesis with the data sources to pull and an ordered sequence of binaries to check, worst offender first. Click any step to jump straight to that binary's detection queries.</div>
+    <div class="lb-guide-intro">Eight hunt scenarios: five map one-to-one onto the categories in this reference, three chain across categories to trace a fuller intrusion pattern. Each pairs a hypothesis with the data sources to pull and an ordered sequence of binaries to check. Click any step to jump straight to that binary's detection queries.</div>
     <div class="lb-guide-grid" id="guideGrid"></div>
   </div>
 </div>
@@ -694,6 +694,38 @@ var GUIDES=[
     steps:[
       {id:'dnscmd', why:'/config /serverlevelplugindll registers an arbitrary DLL to load inside dns.exe on every service restart — a rare, high-value technique limited to DNS server hosts, so any hit deserves immediate escalation.'},
       {id:'schtasks', why:'/create with a plausible-sounding task name schedules recurring execution of a payload — diff newly created tasks against your known-good baseline rather than eyeballing names.'}
+    ]},
+  { id:'full-chain', title:'End-to-End Intrusion Chain: Trusted Binaries at Every Stage', color:'#14b8a6',
+    tagline:'One binary per stage, all of them already on the box.',
+    hypothesis:'A single LOLBin rarely tells the whole story. A full intrusion typically chains a download binary, a whitelisting-bypass binary, an execution proxy, and a persistence mechanism — four different trusted processes, four different log sources, one adversary. Not every intrusion uses exactly this sequence; the value here is noticing two or more of these fire against the same host in a short window, not any single one in isolation.',
+    tactic:'Multi-tactic — Ingress Tool Transfer (T1105), Defense Evasion (T1218/T1220), Persistence (T1053/T1543)',
+    dataSources:'Full process-creation lineage across the host, correlated by logon session rather than examined binary-by-binary — the pattern only becomes visible once you chain parent-child relationships across a short time window.',
+    steps:[
+      {id:'certutil', why:'Stage 1 — retrieves the payload or stager using a certificate utility instead of a browser or custom downloader.'},
+      {id:'regsvr32', why:'Stage 2 — registers the retrieved DLL or scriptlet as a COM object, running it while sidestepping a whitelisting control that would block a bare EXE launch.'},
+      {id:'mshta', why:'Stage 3 — an alternate or follow-on execution path when the staged payload is HTA-based rather than a DLL; watch for it spawning shortly after either of the first two steps.'},
+      {id:'schtasks', why:'Stage 4 — schedules the now-running payload to survive reboot, closing the loop from one-off execution to durable persistence.'}
+    ]},
+  { id:'obfuscated-staging', title:'Obfuscated & Encoded Payload Staging', color:'#fb923c',
+    tagline:'The payload is never sitting there in plain text.',
+    hypothesis:'Rather than write a payload to disk as itself, adversaries encode it, hide it inside a file format nobody inspects closely, or launch it in a window nobody sees — each of these binaries has a built-in feature that does exactly that.',
+    tactic:'Defense Evasion — Obfuscated Files or Information (T1027), Deobfuscate/Decode Files or Information (T1140), Hide Artifacts: Hidden Window (T1564.004)',
+    dataSources:'Command-line auditing for encode/decode flags and window-style arguments, plus file-creation events for the encoded intermediate artifact (.b64, .sct, .xsl) that usually appears just before it.',
+    steps:[
+      {id:'certutil', why:'-encode / -decode round-trips a payload through Base64, defeating naive content-based detection that expects a raw binary on disk.'},
+      {id:'msxsl', why:'Embeds JScript/VBScript inside what looks like a routine XML/XSL transform — the script body hides in a file type nobody scans for code.'},
+      {id:'hh', why:'A .chm file’s embedded shortcut can run an arbitrary command, hidden inside what looks like an ordinary help file.'},
+      {id:'cscript', why:'A hidden window-style invocation runs a script with no visible console, so a user never sees it execute.'},
+      {id:'wscript', why:'Same technique as cscript via the GUI-mode script host — the process simply never shows a window at all.'}
+    ]},
+  { id:'indirect-execution', title:'Indirect Command Execution', color:'#3b82f6',
+    tagline:'The command runs, but never through cmd.exe or powershell.exe.',
+    hypothesis:'Some detections key specifically off cmd.exe or powershell.exe as the process that ran an attacker’s command. These binaries run an arbitrary command through a different parent entirely, quietly stepping around that assumption.',
+    tactic:'Defense Evasion — Indirect Command Execution (T1202)',
+    dataSources:'Process creation + command-line logging, specifically alerting when these binaries appear as the direct parent of a shell or script host rather than following their normal batch/compatibility use.',
+    steps:[
+      {id:'forfiles', why:'/c runs an arbitrary command against every file matching a mask — a single forfiles.exe invocation can trigger repeated command execution without cmd.exe ever being the initiating process.'},
+      {id:'pcalua', why:'The Program Compatibility Assistant’s -a flag launches a target program on the user’s behalf, one layer removed from whatever actually requested it — treat any pcalua.exe execution as needing an explanation.'}
     ]}
 ];
 
