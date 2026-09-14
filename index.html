@@ -557,7 +557,7 @@ body.light .lb-qtab.active{color:#fff;}
   </div>
 
   <div class="lb-guide-scroll" id="guideScroll" hidden>
-    <div class="lb-guide-intro">Ten hunt scenarios: five cover the core categories in this reference, two extend those categories as they grew (a second proxy-execution wave, plus UAC bypass split out from AppLocker/WDAC bypass since it's a different control entirely), and three chain across categories to trace a fuller intrusion pattern. Each pairs a hypothesis with the data sources to pull and an ordered sequence of binaries to check. Click any step to jump straight to that binary's detection queries.</div>
+    <div class="lb-guide-intro">Twelve hunt scenarios: five cover the core categories in this reference, four extend or split those categories as they grew (a second proxy-execution wave, UAC bypass split out from AppLocker/WDAC bypass, Alternate-Data-Stream staging, and Shadow Copy credential extraction), and three chain across categories to trace a fuller intrusion pattern. Each pairs a hypothesis with the data sources to pull and an ordered sequence of binaries to check. Click any step to jump straight to that binary's detection queries.</div>
     <div class="lb-guide-grid" id="guideGrid"></div>
   </div>
 </div>
@@ -737,15 +737,35 @@ var GUIDES=[
     ]},
   { id:'obfuscated-staging', title:'Obfuscated & Encoded Payload Staging', color:'#fb923c',
     tagline:'The payload is never sitting there in plain text.',
-    hypothesis:'Rather than write a payload to disk as itself, adversaries encode it, hide it inside a file format nobody inspects closely, or launch it in a window nobody sees — each of these binaries has a built-in feature that does exactly that.',
-    tactic:'Defense Evasion — Obfuscated Files or Information (T1027), Deobfuscate/Decode Files or Information (T1140), Hide Artifacts: Hidden Window (T1564.004)',
-    dataSources:'Command-line auditing for encode/decode flags and window-style arguments, plus file-creation events for the encoded intermediate artifact (.b64, .sct, .xsl) that usually appears just before it.',
+    hypothesis:'Rather than write a payload to disk as itself, adversaries encode it or hide it inside a file format nobody inspects closely for code — each of these binaries has a built-in feature that does exactly that.',
+    tactic:'Defense Evasion — Deobfuscate/Decode Files or Information (T1140), XSL Script Processing (T1220), System Binary Proxy Execution: CompiledHTML File (T1218.001)',
+    dataSources:'Command-line auditing for encode/decode flags, plus file-creation events for the encoded intermediate artifact (.b64, .xsl, .chm) that usually appears just before it.',
     steps:[
       {id:'certutil', why:'-encode / -decode round-trips a payload through Base64, defeating naive content-based detection that expects a raw binary on disk.'},
       {id:'msxsl', why:'Embeds JScript/VBScript inside what looks like a routine XML/XSL transform — the script body hides in a file type nobody scans for code.'},
-      {id:'hh', why:'A .chm file’s embedded shortcut can run an arbitrary command, hidden inside what looks like an ordinary help file.'},
-      {id:'cscript', why:'A hidden window-style invocation runs a script with no visible console, so a user never sees it execute.'},
-      {id:'wscript', why:'Same technique as cscript via the GUI-mode script host — the process simply never shows a window at all.'}
+      {id:'hh', why:'A .chm file’s embedded shortcut can run an arbitrary command, hidden inside what looks like an ordinary help file.'}
+    ]},
+  { id:'ads-staging', title:'Payload Staging Inside Alternate Data Streams', color:'#facc15',
+    tagline:'The file everyone sees is not the file that actually runs.',
+    hypothesis:'NTFS lets any file carry hidden secondary data streams that never show up in a normal directory listing or Explorer view. Each of these binaries can either write a payload into a stream or execute code directly out of one, so the malicious content rides along on a completely innocuous-looking host file.',
+    tactic:'Defense Evasion — Hide Artifacts: NTFS File Attributes (T1564.004)',
+    dataSources:'Sysmon Event ID 15 (FileCreateStreamHash) is the direct signal — it fires specifically when a process writes to a named ADS — cross-referenced with process creation for the binary that later reads or executes that stream.',
+    steps:[
+      {id:'mavinject', why:'/INJECTRUNNING can inject a DLL staged inside an NTFS Alternate Data Stream directly into a running process by PID — the payload never exists as its own file.'},
+      {id:'sc', why:'A service binPath pointing at host.exe:payload.dll runs the streamed payload on every service start, while sc.exe query and service metadata show only the innocuous host file.'},
+      {id:'makecab', why:'Can compress its output directly into a named stream, keeping the compressed payload off the visible file listing entirely.'},
+      {id:'expand', why:'Can write extracted output into a stream the same way makecab writes into one — check any expand.exe invocation with a colon in its destination argument.'},
+      {id:'cscript', why:'Can run script code stored inside a stream on the fly, so the script body never appears as its own file for a scanner to pick up.'},
+      {id:'wscript', why:'Same ADS-execution capability as cscript via the GUI-mode host — including scripts downloaded and staged into a stream immediately before execution.'}
+    ]},
+  { id:'shadow-copy-creds', title:'Credential Database Extraction via Shadow Copy', color:'#eab308',
+    tagline:'NTDS.dit is locked while the OS is running — Volume Shadow Copy is not.',
+    hypothesis:'The Active Directory database (NTDS.dit) and other credential stores are locked files an adversary can’t just copy directly. Volume Shadow Copy sidesteps that lock entirely, and these two binaries can drive it — one built for exactly this job, one repurposed from a database-repair role.',
+    tactic:'Credential Access — OS Credential Dumping: NTDS (T1003.003)',
+    dataSources:'Volume Shadow Copy service creation/deletion events, process creation for diskshadow.exe/esentutl.exe touching a shadow device path, and file-read access to any copy of ntds.dit outside a legitimate backup job.',
+    steps:[
+      {id:'diskshadow', why:'Script mode can create a shadow copy and then exec an arbitrary command against it — on a domain controller, that is very often a copy of ntds.dit and the SYSTEM registry hive.'},
+      {id:'esentutl', why:'/y /d /vss copies a locked file straight out of a Volume Shadow Copy — the same NTDS.dit extraction diskshadow performs, via a database-repair utility almost nobody watches for this.'}
     ]},
   { id:'indirect-execution', title:'Indirect Command Execution', color:'#3b82f6',
     tagline:'The command runs, but never through cmd.exe or powershell.exe.',
